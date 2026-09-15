@@ -32,11 +32,18 @@ choice. Someone has read `SOUL.md` and disagreed with something in it.
 
 ## M1 — Virtual camera rig + stream ingest (week 1–2)
 
+**Status 2026-09-16: implemented.** Rig (deterministic synthetic footage,
+manifests, fault injection), stream manager (single consumer per source, fan-out,
+ring buffer, reconnect, application-level stall watchdog), clip store, event
+store with append-only enforcement, and the full integration test suite are
+verified on a GPU-less Linux box with containerised Postgres + mediamtx. **Not
+yet done:** GPU decode on the RTX staging box — the last M1 exit criterion.
+
 **Goal.** Frames flowing from RTSP into Python on both platforms, with the rig
 serving recorded/synthetic video indistinguishably from a real camera.
 
 **Entry.** Stack decisions for language/runtime and container layout settled
-(ADR-0014, ADR-0017, ADR-0018 at minimum).
+(ADR-0009, ADR-0014, ADR-0016, ADR-0017, ADR-0018 — all closed 2026-09-16).
 
 **Exit.**
 - mediamtx (or equivalent) serving ≥ 4 simultaneous looped streams.
@@ -57,6 +64,15 @@ box exists and is usable, in week two rather than week eight.
 ---
 
 ## M2 — Backend abstraction + golden-frame parity (week 2–3)
+
+**Status 2026-09-16: implemented.** `Detector`/`PoseEstimator`/`FaceEmbedder`/
+`ClipClassifier` interfaces, capability-probed registry, CPU/CUDA/CoreML backend
+modules, sha256-verified ONNX artefact mechanism (ADR-0026), committed golden
+frames + reference outputs, tolerance suite, and the import-graph structural
+check — all in CI (ADR-0025). **Verified legs:** CPU reference (Linux box + CI).
+**Pending:** CUDA leg on staging, CoreML leg on the Mac (ADR-0022). ADR-0011
+closed: permissively licensed models only; bring-up artefact is Apache-2.0
+`ssd_mobilenet_v1`.
 
 **Goal.** One detector running through `Detector` on CoreML (macOS) and
 CUDA/TensorRT (Linux), with divergence measured rather than assumed.
@@ -100,6 +116,9 @@ identity → direction → doorway event → pairing → dwell → overage → s
 - Overage computed per local day; shadow report rendered; nothing exported.
 - Every payroll line resolves to a clip in under a minute, by hand, by someone
   who did not write the code.
+- Monitoring metrics from `THREAT_MODEL.md` §7 exist from day one: `unknown`
+  face rate per door per hour, unpaired event rate per door per day, stream gap
+  minutes per camera per day, flagged-day percentage.
 
 **De-risks.** That the pairing semantics are wrong, which is the failure that
 would actually cost someone money. Doing it on synthetic video means we can
@@ -161,7 +180,8 @@ that could become a disciplinary artefact.
 
 ## M6 — Violence detection, trigger + queue (week 7–9)
 
-**Goal.** Cheap always-on pose trigger → clip → classifier → human review queue.
+**Goal.** Cheap always-on pose trigger → clip → human review queue. Trigger-only
+is a valid exit; a classifier stage, if any, sits before the queue.
 
 **Entry.** M1 clipping solid. A classifier approach chosen (ADR-0012), knowing
 that public datasets are access-restricted and site footage does not exist.
@@ -169,7 +189,9 @@ that public datasets are access-restricted and site footage does not exist.
 **Exit.**
 - Pose-based trigger tuned for recall over precision, cheap enough to run
   continuously alongside everything else on one GPU.
-- Trigger → clip (with pre-roll) → classifier → queue item.
+- Trigger → clip (with pre-roll) → classifier, *if any* → queue item. With
+  ADR-0012's trigger-only leaning the classifier stage is absent and the trigger
+  feeds the queue directly — an acceptable exit, not a slip.
 - Review UI: watch, dismiss, escalate, with the action logged.
 - **No automated verdict anywhere in the path.** No notification, no name, no
   incident record without a human.

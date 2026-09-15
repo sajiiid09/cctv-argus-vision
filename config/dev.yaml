@@ -1,0 +1,46 @@
+# Dev configuration — the same file/env mechanism on every platform (§5.4).
+# Camera URIs point at the virtual camera rig (mediamtx on localhost).
+timezone: Asia/Dhaka
+
+database:
+  dsn: postgresql://argus:argus@localhost:5432/argus
+
+clips:
+  dir: var/clips
+
+ingest:
+  stall_timeout_s: 5
+  decode: software
+  reconnect:
+    initial_s: 0.5
+    max_s: 10
+    jitter: 0.25
+  ring_buffer_seconds: 15
+
+cameras:
+  - camera_id: canteen_door_01
+    role: canteen_door
+    space_id: canteen
+    door_id: c1
+    direction_hint: east
+    source_uri: rtsp://localhost:8554/canteen_door_01
+    is_virtual: true
+
+  - camera_id: canteen_door_02
+    role: canteen_door
+    space_id: canteen
+    door_id: c2
+    direction_hint: west
+    source_uri: rtsp://localhost:8554/canteen_door_02
+    is_virtual: true
+
+  - camera_id: gate_door
+    role: gate
+    door_id: g1
+    source_uri: rtsp://localhost:8554/gate_door
+    is_virtual: true
+
+  - camera_id: floor_view
+    role: floor
+    source_uri: rtsp://localhost:8554/floor_view
+    is_virtual: true

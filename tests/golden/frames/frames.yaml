@@ -1,0 +1,12 @@
+# Golden-frame provenance (FOOTAGE.md discipline: licence recorded next to file).
+frames:
+  doorway_empty:      {source: synthetic (rig/synthetic/generate.py), licence: generated, detections: none expected}
+  doorway_single:     {source: synthetic (rig/synthetic/generate.py), licence: generated, detections: none expected}
+  doorway_two_overlap:{source: synthetic (rig/synthetic/generate.py), licence: generated, detections: none expected}
+  floor_grid:         {source: synthetic (rig/synthetic/generate.py), licence: generated, detections: none expected}
+  gate_closeup:       {source: synthetic (rig/synthetic/generate.py), licence: generated, detections: none expected}
+  real_person_01:
+    source: NASA photograph of astronaut Eileen Collins (scikit-image sample data)
+    url: https://raw.githubusercontent.com/scikit-image/scikit-image/v0.25.0/skimage/data/astronaut.png
+    licence: public domain (NASA)
+    detections: person expected

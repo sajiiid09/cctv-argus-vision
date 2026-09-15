@@ -1,0 +1,73 @@
+[tool.uv.workspace]
+members = ["packages/*", "services/*"]
+
+[tool.uv.sources]
+argus-common = { workspace = true }
+argus-store = { workspace = true }
+argus-backends = { workspace = true }
+argus-pipelines = { workspace = true }
+argus-payroll = { workspace = true }
+argus-ingest = { workspace = true }
+
+[dependency-groups]
+# Default environment: every dev box and CI. CPU onnxruntime everywhere.
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "mypy>=1.13",
+    "types-pyyaml>=6",
+    "onnxruntime>=1.19",
+]
+# Staging/production box (Linux x86_64 + NVIDIA). Replaces dev's CPU runtime.
+staging = [
+    "onnxruntime-gpu>=1.19; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+]
+
+[tool.ruff]
+line-length = 100
+src = ["packages", "services", "rig", "models", "tests"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["SIM108"]
+
+[tool.ruff.lint.per-file-ignores]
+# rig scripts are run as files with an explicit sys.path bootstrap; isort would
+# rewrite their sibling imports into non-runnable package paths
+"rig/bin/*" = ["I001"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["packages", "services"]
+explicit_package_bases = true
+mypy_path = [
+    "packages/argus_common/src",
+    "packages/argus_store/src",
+    "packages/argus_backends/src",
+    "packages/argus_pipelines/src",
+    "packages/argus_payroll/src",
+    "services/ingest/src",
+]
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["av.*", "psycopg.*", "onnxruntime.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+markers = [
+    "rig: requires the virtual camera rig (docker mediamtx + serving processes + footage)",
+    "postgres: requires Postgres (docker)",
+    "golden: requires fetched model artefacts (models/fetch.py)",
+]

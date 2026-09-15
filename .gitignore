@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+
+# rig footage is never committed (FOOTAGE.md): manifests are, video is not
+rig/footage/*
+!rig/footage/.gitkeep
+
+# model binaries are fetched + hash-verified, never committed (ADR-0026)
+models/artifacts/
+
+# runtime state: clips, rig pids, serve logs
+var/
+
+# local only
+.env

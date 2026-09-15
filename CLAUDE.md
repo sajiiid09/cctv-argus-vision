@@ -14,10 +14,11 @@ distinction between payroll-affecting code and everything else.
 
 ## Status
 
-**Documentation only. No code, no scaffolding, no configuration exists** as of
-2026-09-13. Technology choices are open — see `DECISIONS.md` before assuming a
-stack. Build, lint and test commands are not documented because there is nothing
-to build yet; re-run `/init` once the first code lands.
+**M0 closed, M1 (rig + ingest) and M2 (backend abstraction + parity) implemented
+(2026-09-16); the Linux/CPU leg is verified.** No payroll logic exists yet.
+Build/lint/test commands are in `AGENTS.md` ("Commands") and `DEV_SETUP.md`;
+technology choices are recorded in `DECISIONS.md` (ADR-0009 through 0018 and
+0025/0026 accepted; the rest are open with leanings).
 
 ## The one thing to get right
 

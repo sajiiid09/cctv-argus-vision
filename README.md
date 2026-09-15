@@ -2,10 +2,12 @@
 
 CCTV workplace analytics for a garments factory in Bangladesh.
 
-**Status: documentation only. No code exists.** Every technology choice is open;
-see `DECISIONS.md`. `PROJECT_NAME` is a placeholder — the product has no name
-(ADR-0024). The directory is called `argus-vision`; that is a directory name, not
-a decision.
+**Status 2026-09-16: M0 closed, M1 (rig + ingest) and M2 (backends + parity)
+implemented; the Linux/CPU leg is verified end-to-end.** Remaining M1 exit:
+GPU decode on the RTX staging box; remaining M2 legs: CUDA (staging) and CoreML
+(Mac). No payroll logic yet — M3 is next. `PROJECT_NAME` is a placeholder — the
+product has no name (ADR-0024). The repository directory is called `argus`; that
+is a directory name, not a decision, and not the product name either.
 
 ## What it does
 

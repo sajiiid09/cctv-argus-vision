@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --all-packages
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - name: Unit + structural tests (no services needed)
+        run: uv run pytest -m "not rig and not postgres" -v
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: argus
+          POSTGRES_PASSWORD: argus
+          POSTGRES_DB: argus
+        ports:
+          - 5432:5432
+      mediamtx:
+        image: bluenviron/mediamtx:latest
+        ports:
+          - 8554:8554
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --all-packages
+      - name: Fetch model artefacts (ADR-0026)
+        run: uv run python models/fetch.py
+      - name: Generate rig footage + manifests
+        run: uv run python rig/synthetic/generate.py
+      - name: Full suite incl. rig, store, golden parity
+        env:
+          ARGUS_MODELS_ROOT: ${{ github.workspace }}/models
+        run: uv run pytest -v
+      - name: Ingest smoke (DEV_SETUP §5 list)
+        env:
+          ARGUS_MODELS_ROOT: ${{ github.workspace }}/models
+        run: |
+          uv run python rig/bin/rig_serve.py &
+          sleep 5
+          timeout 40 uv run python -m argus.ingest --config config/dev.yaml & sleep 25
+          uv run ffprobe -v error -show_streams rtsp://localhost:8554/canteen_door_01 | grep -q h264
+          kill %2 || true

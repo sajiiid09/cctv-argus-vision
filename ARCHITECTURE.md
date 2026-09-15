@@ -341,7 +341,16 @@ would otherwise have to build.
 ### 5.7 The third environment: Linux staging
 
 A Linux box with an NVIDIA GPU that mirrors production: same OS, same container
-runtime, same GPU family if possible.
+runtime, same GPU family if possible. **Known as of 2026-09-16:** the staging
+box is a Linux/x86_64 machine with an RTX 3060/4060-class GPU (≥ 12 GB VRAM).
+That is enough to *prove the system*; production sizing for the real camera
+count remains open (ADR-0020).
+
+There is also a third machine in practice: a GPU-less Linux box used for
+writing code. It runs the same source tree with the CPU reference backend
+(onnxruntime CPU), which is exactly the reference leg of the parity suite —
+useful, not a compromise — but it proves neither CoreML nor CUDA. macOS proves
+the CoreML leg; the staging box proves the system.
 
 **Earliest point code must be proven there: as soon as the first analysis
 pipeline produces an event end-to-end** — not after the demo, not "before pilot".

@@ -1,0 +1,67 @@
+{
+  "backend": "onnx-cpu",
+  "frames": {
+    "doorway_empty": {
+      "detections": [],
+      "shape": [
+        360,
+        640,
+        3
+      ]
+    },
+    "doorway_single": {
+      "detections": [],
+      "shape": [
+        360,
+        640,
+        3
+      ]
+    },
+    "doorway_two_overlap": {
+      "detections": [],
+      "shape": [
+        360,
+        640,
+        3
+      ]
+    },
+    "floor_grid": {
+      "detections": [],
+      "shape": [
+        360,
+        640,
+        3
+      ]
+    },
+    "gate_closeup": {
+      "detections": [],
+      "shape": [
+        270,
+        480,
+        3
+      ]
+    },
+    "real_person_01": {
+      "detections": [
+        {
+          "box": [
+            20.93780517578125,
+            3.825103759765625,
+            366.71405029296875,
+            510.3152770996094
+          ],
+          "label": "person",
+          "label_id": 1,
+          "score": 0.879376
+        }
+      ],
+      "shape": [
+        512,
+        512,
+        3
+      ]
+    }
+  },
+  "model_ref": "ssd_mobilenet_v1@1fbcf4765416",
+  "score_threshold": 0.5
+}

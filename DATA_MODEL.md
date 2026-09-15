@@ -76,10 +76,15 @@ camera
   camera_id
   role             gate | canteen_door | floor
   source_uri       RTSP (real or virtual rig)
+  space_id         the canteen space this camera's door opens into (doorway cameras)
   door_id          for doorway cameras
   direction_hint   which way "in" is, geometrically
   is_virtual       true for rig streams
 ```
+
+`space_id` exists because pairing is per **canteen space**, not per door (§4): a
+canteen with two doors is one space, and a dwell interval may start at one door
+and end at the other.
 
 `is_virtual` exists so that a payroll export can refuse to include anything
 derived from a virtual camera. Demo footage must never be able to reach a wage.
@@ -123,7 +128,7 @@ flagged and contributes zero overage.
 dwell_interval
   interval_id
   person_id
-  door_id
+  space_id                        the canteen space (enter and exit may be different doors in it)
   enter_event_id, exit_event_id    either may be null
   start_utc, end_utc
   duration_s
@@ -137,7 +142,7 @@ dwell_interval
 
 ```
 payroll_line
-  line_id
+  payroll_line_id
   person_id
   pay_period
   total_overage_s
@@ -146,6 +151,10 @@ payroll_line
   exported_at                  null while in shadow mode
   export_signature             hash over contents
 ```
+
+Named `payroll_line_id`, not `line_id`: in this domain "line" already means a
+production line (`person.line_id`), and a payroll schema with two meanings of
+`line_id` is a confusion waiting for a tired reviewer.
 
 `export_signature` exists so that the CSV a human keys into payroll can be proven
 to match what the system computed, if it is ever questioned.
@@ -203,7 +212,7 @@ destroys the distinction that the whole gate pipeline exists to make.
 person 1─* face_template
 person 1─* gate_event
 person 1─* doorway_event        (nullable: unknown events have no person)
-doorway_event *─1 camera *─1 door
+doorway_event *─1 camera *─1 space (doorway cameras, via space_id)
 dwell_interval *─1 person, 0..1 enter_event, 0..1 exit_event
 payroll_line 1─* dwell_interval
 stream_gap *─1 camera           (overlaps intervals by time, not by key)
@@ -222,8 +231,9 @@ refactor.
 The payroll-affecting core. Every case has a defined resolution, and every
 ambiguous case resolves to **zero overage plus a review flag**.
 
-Scope of one evaluation: one `person_id`, one `door_id`, one local day
-(`Asia/Dhaka`), processed in `ts_utc` order.
+Scope of one evaluation: one `person_id`, one canteen **space** (`space_id` —
+not one door; see the multiple-doors row below), one local day (`Asia/Dhaka`),
+processed in `ts_utc` order.
 
 ### States
 
@@ -279,7 +289,7 @@ exists to avoid.
 **PROVISIONAL:** this is the strictest reading of fail-open and it means one bad
 event forgives a whole day. The alternative — charge the clean intervals, flag
 the rest — is defensible and cheaper for the factory. Decide before shadow mode
-ends (ADR stub).
+ends (ADR-0023).
 
 ### Recomputation
 

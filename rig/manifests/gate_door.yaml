@@ -1,0 +1,13 @@
+name: gate_door
+file: gate_door.mp4
+resolution:
+- 480
+- 270
+fps: 30
+duration_s: 60
+codec: h264
+licence: synthetic-generated (this repo)
+consent: not-applicable (no real people)
+local_start: '13:58:00'
+timezone: Asia/Dhaka
+role: gate
