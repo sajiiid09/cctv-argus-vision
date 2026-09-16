@@ -1,0 +1,31 @@
+# Dev infrastructure: Postgres + mediamtx in containers; analysis runs natively
+# (ARCHITECTURE.md §5.4). Linux staging also uses this for the infra services.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: argus
+      POSTGRES_PASSWORD: argus
+      POSTGRES_DB: argus
+    ports:
+      - "${ARGUS_PG_HOST_PORT:-5432}:5432"
+    volumes:
+      - argus_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U argus -d argus"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    ports:
+      - "8554:8554"
+      - "8888:8888"
+      - "8889:8889"
+    volumes:
+      - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
+    restart: unless-stopped
+
+volumes:
+  argus_pgdata:

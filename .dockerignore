@@ -1,0 +1,12 @@
+.venv/
+var/
+rig/footage/
+models/artifacts/
+.git/
+.github/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tests/

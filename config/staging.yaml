@@ -1,0 +1,45 @@
+# Staging (Linux + NVIDIA). Cameras still virtual until the site survey (M8);
+# decode: nvidia is the NVDEC probe — falls back loudly if unavailable.
+timezone: Asia/Dhaka
+
+database:
+  dsn: postgresql://argus:argus@postgres:5432/argus
+
+clips:
+  dir: /app/var/clips
+
+ingest:
+  stall_timeout_s: 5
+  decode: nvidia
+  reconnect:
+    initial_s: 0.5
+    max_s: 30
+  ring_buffer_seconds: 15
+
+cameras:
+  - camera_id: canteen_door_01
+    role: canteen_door
+    space_id: canteen
+    door_id: c1
+    direction_hint: east
+    source_uri: rtsp://mediamtx:8554/canteen_door_01
+    is_virtual: true
+
+  - camera_id: canteen_door_02
+    role: canteen_door
+    space_id: canteen
+    door_id: c2
+    direction_hint: west
+    source_uri: rtsp://mediamtx:8554/canteen_door_02
+    is_virtual: true
+
+  - camera_id: gate_door
+    role: gate
+    door_id: g1
+    source_uri: rtsp://mediamtx:8554/gate_door
+    is_virtual: true
+
+  - camera_id: floor_view
+    role: floor
+    source_uri: rtsp://mediamtx:8554/floor_view
+    is_virtual: true

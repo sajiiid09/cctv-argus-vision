@@ -1,0 +1,16 @@
+# mediamtx for the virtual camera rig (ARCHITECTURE.md §6).
+# At the pipeline boundary a virtual camera must be indistinguishable from a
+# real one: same protocol, same reconnect behaviour, same decode path.
+logLevel: info
+rtspAddress: :8554
+rtspTransports: [tcp, udp]
+hlsAddress: :8888
+webrtcAddress: :8889
+# Keep the publisher session alive across short stalls so the rig's
+# pause/resume fault injection exercises OUR stall detection, not mediamtx's.
+readTimeout: 30s
+
+# Publisher = rig's ffmpeg pusher; readers = the stream manager (one consumer
+# per channel, fanned out internally — the DVR limit is designed in).
+paths:
+  all_others:

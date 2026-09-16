@@ -5,10 +5,30 @@ Operating instructions for AI coding agents (and humans) working in this repo.
 Read `SOUL.md` first. It is short, and it decides most arguments this document
 would otherwise have to have.
 
-**Current state: documentation only. No code, no scaffolding, no configuration
-exists.** Sections marked **UNBUILT** describe conventions for code that does not
-exist yet; follow them when you create it, and update this file if reality
-diverges.
+**Current state as of 2026-09-16: M0 closed, M1 (rig + ingest) implemented and
+verified on Linux/CPU, M2 (backend abstraction + golden-frame parity) implemented
+with the CPU leg verified.** No payroll logic exists yet. The remaining M1 exit
+criterion is GPU decode on the RTX staging box; the M2 CUDA/CoreML parity legs
+run on their machines. Sections previously marked **UNBUILT** now describe real
+code — update them if reality diverges.
+
+### Commands (same on every platform)
+
+```bash
+uv sync --all-packages                  # dev environment (CPU onnxruntime)
+uv run pytest -q                        # tests; rig/store/golden skip loudly without services
+uv run ruff check . && uv run ruff format --check . && uv run mypy
+uv run python models/fetch.py           # fetch + hash-verify model artefacts (ADR-0026)
+docker compose -f infra/compose.dev.yaml up -d        # Postgres + mediamtx
+uv run python rig/synthetic/generate.py # deterministic rig footage + manifests
+uv run python rig/bin/rig_serve.py      # serve the virtual cameras
+uv run python rig/bin/rig_rigctl.py status|pause|resume|stop|start <stream>
+uv run python -m argus.ingest --config config/dev.yaml
+```
+
+If host port 5432 is busy: `ARGUS_PG_HOST_PORT=5434` on compose and
+`ARGUS_DATABASE__DSN=postgresql://argus:argus@localhost:5434/argus` for tests
+(`ARGUS_TEST_DSN` likewise).
 
 ---
 
@@ -82,10 +102,9 @@ after implementation is a justification, not a decision.
 
 ---
 
-## 4. Directory conventions — **UNBUILT**
+## 4. Directory conventions
 
-Proposed layout, to be created with the first code and revised if it does not
-fit:
+Built layout (2026-09-16):
 
 ```
 docs/            these documents (currently at root; may move)
@@ -102,11 +121,18 @@ tests/
 models/          ONNX artefacts referenced by hash (or a pointer file; see below)
 ```
 
+Decided 2026-09-16: **the documents stay at the repository root.** Every
+document cross-references root paths; moving them is churn with no payoff. The
+`docs/` line above is kept only if a docs directory is ever genuinely needed.
+
 Rules:
 
-- **All paths lowercase with underscores.** The dev Mac is case-insensitive and
-  the production box is not; `Models/Face.onnx` works on one and not the other.
-  This is enforced by a CI check on Linux, not by care.
+- **All code paths lowercase with underscores** (everything under `services/`,
+  `packages/`, `infra/`, `rig/`, `tests/`, `models/`; the root `.md` documents
+  are exempt — they predate the convention and are referenced by their current
+  names throughout). The dev Mac is case-insensitive and the production box is
+  not; `models/Face.onnx` works on one and not the other. This is enforced by a
+  CI check on Linux, not by care.
 - **`packages/payroll/` imports no vision code.** Pairing and overage are pure
   functions over stored events. Keeping probabilistic code out of wage arithmetic
   is deliberate — it is what makes the wage arithmetic testable.
@@ -120,9 +146,10 @@ Rules:
 
 ---
 
-## 5. Running things — **UNBUILT**
+## 5. Running things
 
-Detail in `DEV_SETUP.md`, and note that nobody has executed any of it.
+Detail in `DEV_SETUP.md` (the Linux/CPU path is verified; macOS and the RTX
+staging legs are marked UNVERIFIED there until someone runs them).
 
 **macOS (dev).** Infrastructure in Docker (Postgres, mediamtx, broker); analysis
 processes run **natively**, because Docker on macOS cannot reach the GPU. So the

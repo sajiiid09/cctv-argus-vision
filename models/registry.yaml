@@ -1,0 +1,13 @@
+# Model artefact registry (ADR-0026). Binaries live in models/artifacts/
+# (git-ignored) and are fetched + sha256-verified by models/fetch.py.
+# Comparing outputs from two different model files proves nothing (TESTING.md §3).
+artifacts:
+  ssd_mobilenet_v1:
+    file: artifacts/ssd_mobilenet_v1_10.onnx
+    sha256: 1fbcf47654165f2e0b5f1bdf3f123b9e9e1128cd6463717767b76ab4b5246f9a
+    url: https://github.com/onnx/models/raw/main/validated/vision/object_detection_segmentation/ssd-mobilenetv1/model/ssd_mobilenet_v1_10.onnx
+    licence: Apache-2.0
+    source: ONNX model zoo (ssd-mobilenetv1, version 10)
+    note: >-
+      Bring-up detector for the parity suite (ADR-0011). Chosen for licence and
+      availability, not accuracy; family revisited with measured data at M8/M9.

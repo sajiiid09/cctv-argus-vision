@@ -1,0 +1,36 @@
+name: canteen_door_01
+file: canteen_door_01.mp4
+resolution:
+- 640
+- 360
+fps: 30
+duration_s: 60
+codec: h264
+licence: synthetic-generated (this repo)
+consent: not-applicable (no real people)
+local_start: '13:58:00'
+timezone: Asia/Dhaka
+role: canteen_door
+ground_truth:
+  door_line_x: 320
+  crossings:
+  - t: 7.667
+    direction: enter
+  - t: 14.091
+    direction: exit
+  - t: 18.714
+    direction: enter
+  - t: 25.355
+    direction: enter
+  - t: 26.4
+    direction: enter
+  - t: 31.545
+    direction: exit
+  - t: 39.667
+    direction: enter
+  - t: 45.375
+    direction: enter
+  - t: 53.154
+    direction: exit
+  - t: 57.412
+    direction: enter

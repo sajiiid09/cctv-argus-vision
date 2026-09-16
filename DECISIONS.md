@@ -182,17 +182,18 @@ Each carries a provisional leaning so work can start. A leaning is not a
 decision.
 
 ## ADR-0009 — NVR/VMS substrate vs build from scratch
-Date: 2026-09-13 · Status: **OPEN**
+Date: 2026-09-13 · Accepted 2026-09-16 · Status: **ACCEPTED** (option a)
 
 **Options.** (a) Build ingest/clipping/events ourselves. (b) Frigate-class NVR as
 substrate, entering only at Linux staging. (c) NVR alongside as an operator
 convenience while we read RTSP directly.
 
-**Leaning:** (a), with (c) as a cheap later addition. The parts an NVR gives
+**Decision.** (a), with (c) as a cheap later addition. The parts an NVR gives
 cheaply — recording, motion, a camera UI — are not where our value is; the parts
 we need (audited doorway events, pairing, payroll-grade traceability) no NVR
 provides. And (b) makes a central component untestable on the primary dev
 machine, which on this timeline is a serious tax. `ARCHITECTURE.md` §5.6.
+Accepted per the leaning below; no new evidence had arrived.
 
 **Changes it.** A measured GPU/decode budget showing we cannot afford our own
 decode path, or a long list of operator-facing features we would otherwise build.
@@ -215,23 +216,29 @@ pipeline undevelopable on macOS, and may have no ONNX path — breaking numerica
 parity testing entirely.
 
 **Hard constraints regardless:** templates never leave the site (rules out cloud
-APIs), and the licence must permit commercial deployment.
+APIs), the licence must permit commercial deployment, and the stack must include
+a liveness/anti-spoofing story for the gate (`THREAT_MODEL.md` §1) — photo and
+replay attacks are easy, obvious, and work against naive systems.
 
 **Changes it.** Measured accuracy on real doorway footage falling short of what
 an SDK demonstrably achieves — a question only M8/M9 footage can settle.
 
 ## ADR-0011 — Detection and pose model family, and licensing
-Date: 2026-09-13 · Status: **OPEN**
+Date: 2026-09-13 · Accepted 2026-09-16 · Status: **ACCEPTED** (option b)
 
 **Options.** (a) YOLO-family via Ultralytics (**AGPL-3.0** — a live constraint
 for a deployed commercial system, not a footnote). (b) Permissively licensed
 alternatives (RT-DETR variants, MMDetection-derived exports, licence per model).
 (c) A commercially licensed model.
 
-**Leaning:** start with (a) for prototyping speed, and treat the licence as a
-**blocking question before pilot**, not before demo. Decide early enough that a
-swap is cheap — which is exactly what the `Detector`/`PoseEstimator` abstraction
-buys us.
+**Decision.** (b). Permissively licensed models only (Apache-2.0/MIT-class), so
+the deployed path never carries an AGPL question and the sign-off gate in
+`AGENTS.md` §2.9 is not needed. Bring-up artefact: `ssd_mobilenet_v1_10.onnx`
+(Apache-2.0, ONNX model zoo) — chosen for parity bring-up, not for final
+accuracy; the family is revisited with measured data at M8/M9. The
+`Detector`/`PoseEstimator` abstraction keeps any later swap cheap.
+Ultralytics remains excluded from the deployed path unless legal advice
+reopens this ADR.
 
 **Changes it.** Legal advice on AGPL exposure for an on-prem deployment at a
 client site; measured accuracy differences on doorway footage.
@@ -259,27 +266,28 @@ invites unearned trust.
 reviewer load making (c) impractical.
 
 ## ADR-0013 — Event bus / inter-process transport
-Date: 2026-09-13 · Status: **OPEN**
+Date: 2026-09-13 · Accepted 2026-09-16 · Status: **ACCEPTED** (option a)
 
 **Options.** (a) Postgres as the queue (`LISTEN/NOTIFY`, or polling a table).
 (b) Redis streams. (c) A real broker (NATS, RabbitMQ).
 
-**Leaning:** (a) or (b), leaning (a). Single box, modest event rate — doorway
-events are a handful per second at peak, not thousands — and one fewer component
-to operate. Frames do **not** go through the bus in any case; only events do.
+**Decision.** (a). Single box, modest event rate — doorway events are a handful
+per second at peak, not thousands — and one fewer component to operate. Frames
+do **not** go through the bus in any case; only events do. Accepted per the
+leaning below; no new evidence had arrived.
 
 **Changes it.** Measured event rates or a need for durable replay semantics that
 Postgres makes awkward.
 
 ## ADR-0014 — Database
-Date: 2026-09-13 · Status: **OPEN**
+Date: 2026-09-13 · Accepted 2026-09-16 · Status: **ACCEPTED** (option a)
 
 **Options.** (a) Postgres. (b) Postgres + TimescaleDB for occupancy samples.
 (c) SQLite.
 
-**Leaning:** (a), revisit (b) only if occupancy sample volume proves it. (c) is
+**Decision.** (a), revisit (b) only if occupancy sample volume proves it. (c) is
 tempting for a single box but poor under concurrent writers from several
-pipelines.
+pipelines. Accepted per the leaning below; no new evidence had arrived.
 
 ## ADR-0015 — Dashboard / review UI framework
 Date: 2026-09-13 · Status: **OPEN**
@@ -292,30 +300,33 @@ against an API. (c) A low-code dashboard tool.
 requirement. (b) is justified only if the management dashboards grow.
 
 ## ADR-0016 — Deployment orchestration
-Date: 2026-09-13 · Status: **OPEN**
+Date: 2026-09-13 · Accepted 2026-09-16 · Status: **ACCEPTED** (option a)
 
 **Options.** (a) docker compose + systemd on one box. (b) Kubernetes (k3s).
 (c) Bare systemd units, no containers.
 
-**Leaning:** (a). One box, intermittent internet, no ops team. (b) is
-unjustifiable at this scale. Remember that on macOS inference runs natively
-regardless (`ARCHITECTURE.md` §5.4), so compose describes the Linux deployment,
-not the dev loop.
+**Decision.** (a). One box, intermittent internet, no ops team. (b) is
+unjustifiable at this scale. On macOS inference runs natively regardless
+(`ARCHITECTURE.md` §5.4), so compose describes the Linux deployment, not the
+dev loop. Accepted per the leaning below; no new evidence had arrived.
 
 ## ADR-0017 — Monorepo vs polyrepo, language boundaries, Python version
-Date: 2026-09-13 · Status: **OPEN**
+Date: 2026-09-13 · Accepted 2026-09-16 · Status: **ACCEPTED**
 
-**Leaning:** monorepo; Python for pipelines and services; JS only if ADR-0015
+**Decision.** Monorepo; Python for pipelines and services; JS only if ADR-0015
 lands on a SPA; no second backend language unless a measured bottleneck demands
-it. Python version: pin one, choose it by what the chosen inference runtime and
-CUDA stack support on Ubuntu 22.04/24.04 — a constraint from below, not a
-preference.
+it. **Python 3.12 pinned** — chosen by what `onnxruntime`/`onnxruntime-gpu` and
+the CUDA stack support on Ubuntu 22.04/24.04, a constraint from below, not a
+preference. Layout: uv workspace with members under `packages/` and `services/`,
+all importing under the `argus.` namespace (`argus.store`, `argus.backends`, …)
+so `packages/backends/` remains the only directory that imports inference
+runtimes while imports stay unambiguous.
 
 **Changes it.** A dependency that forces a split, or measured throughput that
 needs a native component.
 
 ## ADR-0018 — Dependency management across platforms
-Date: 2026-09-13 · Status: **OPEN**
+Date: 2026-09-13 · Accepted 2026-09-16 · Status: **ACCEPTED** (option a)
 
 **Context.** `onnxruntime` / `onnxruntime-gpu` / CoreML availability differ by
 platform; CUDA-only packages do not install on macOS at all
@@ -324,9 +335,13 @@ platform; CUDA-only packages do not install on macOS at all
 **Options.** (a) uv with platform markers and extras. (b) Poetry with the same.
 (c) Per-platform lock files.
 
-**Leaning:** (a) with optional extras (`[cuda]`, `[macos]`) and a lock that
-resolves on both platforms. Whatever we choose must express "this wheel only on
-Linux x86_64" without a runtime hack.
+**Decision.** (a). Extras `[cpu]`, `[cuda]`, `[macos]` with a lock that resolves
+on both platforms; the `[cuda]` extra carries
+`sys_platform == 'linux' and platform_machine == 'x86_64'` markers so the
+CUDA-only wheel can never resolve on macOS. `onnxruntime` is never a base
+dependency (it conflicts with `onnxruntime-gpu`), which is why a bare sync
+yields a runnable-but-backendless tree. Accepted per the leaning below; no new
+evidence had arrived.
 
 ## ADR-0019 — Occupancy granularity: per-operator or line-level only
 Date: 2026-09-13 · Status: **OPEN**
@@ -407,8 +422,48 @@ fix — better capture is.
 ## ADR-0024 — Product name
 Date: 2026-09-13 · Status: **OPEN**
 
-`PROJECT_NAME` is a placeholder throughout. The working directory is
-`argus-vision`, which is a directory name, not a decision. Worth a moment's
-thought that "Argus" — the hundred-eyed watchman — names the surveillance reading
-of this system rather than the measurement-and-audit reading we argue for in
-`SOUL.md`. Naming is not neutral when a buyer's auditor reads the slide.
+`PROJECT_NAME` is a placeholder throughout. The working directory is `argus`,
+which is a directory name, not a decision. Worth a moment's thought that "Argus"
+— the hundred-eyed watchman — names the surveillance reading of this system
+rather than the measurement-and-audit reading we argue for in `SOUL.md`. Naming
+is not neutral when a buyer's auditor reads the slide.
+
+## ADR-0025 — CI provider
+Date: 2026-09-16 · Status: **ACCEPTED**
+
+**Context.** The docs assume "Linux CI" throughout (lowercase-path check,
+import-graph check, golden-frame parity suite, case-sensitive filesystem) but no
+ADR ever named the provider. CI was assumed everywhere and decided nowhere.
+
+**Options.** (a) GitHub Actions with Linux runners. (b) Self-hosted runner on
+the staging box. (c) Another hosted CI.
+
+**Decision.** (a). The repo lives on GitHub; hosted Linux runners give the
+case-sensitive filesystem and container services (Postgres, mediamtx) the
+integration tests need, at zero ops cost. (b) is deferred until the macOS parity
+leg needs a home with a GPU (it does not have one — see ADR-0022) or hosted
+runners become a constraint.
+
+**Consequences.** The macOS leg of the parity suite remains un-homed in CI
+(ADR-0022 open, leaning (b): developer-machine runs, recorded not enforced).
+
+## ADR-0026 — Model artefact mechanism
+Date: 2026-09-16 · Status: **ACCEPTED**
+
+**Context.** `AGENTS.md` §4 requires large model binaries to stay out of git
+history and the mechanism (LFS, pointer file plus fetch script, artefact store)
+to be picked before the first model lands. The first model is landing now.
+
+**Options.** (a) Git LFS. (b) Pointer registry plus fetch script with hash
+verification. (c) An artefact store / model registry service.
+
+**Decision.** (b). `models/registry.yaml` maps artefact name → (URL, sha256,
+licence, size); `models/fetch.py` downloads and verifies; `.gitignore` excludes
+the binaries. A committed hash is what the parity suite needs — comparing two
+different model files proves nothing — and a fetch script is auditable and
+dependency-free, unlike LFS (which also quietly changes clone behaviour for
+everyone). (c) is operational machinery this single-box project does not need.
+
+**Consequences.** First sync on a new machine is `uv run python models/fetch.py`
+before backend tests will pass; tests skip loudly, not silently, when the
+artefact is absent.
