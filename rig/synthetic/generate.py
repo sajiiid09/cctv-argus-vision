@@ -147,7 +147,13 @@ def encode(name: str, scene: dict, out_dir: Path, fps: int = FPS) -> Path:
         stream.width = width
         stream.height = height
         stream.pix_fmt = "yuv420p"
-        stream.options = {"crf": "20", "preset": "veryfast"}
+        # One keyframe per second, matching the I-frame interval we set on the
+        # real cameras (ADR-0029/ADR-0031). libx264's default GOP of 250 leaves
+        # a 15-second packet ring holding one keyframe or none, which makes
+        # clip extraction snap back several seconds or fail outright -- measured,
+        # not assumed: a 5-second capture off the rig contained zero keyframes.
+        stream.gop_size = fps
+        stream.options = {"crf": "20", "preset": "veryfast", "g": str(fps)}
         n_frames = scene["duration"] * fps
         for i in range(n_frames):
             t = i / fps

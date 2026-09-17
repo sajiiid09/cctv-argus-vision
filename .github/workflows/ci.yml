@@ -12,7 +12,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      - run: uv sync --all-packages
+      - run: uv sync --all-packages --group cpu
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy
@@ -43,7 +43,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      - run: uv sync --all-packages
+      - run: uv sync --all-packages --group cpu
       - name: Fetch model artefacts (ADR-0026)
         run: uv run python models/fetch.py
       - name: Generate rig footage + manifests

@@ -1,6 +1,6 @@
 # DECISIONS.md
 
-Architecture Decision Record log for `PROJECT_NAME`.
+Architecture Decision Record log for **Sparrow Vision**.
 
 ## Format
 
@@ -199,13 +199,20 @@ Accepted per the leaning below; no new evidence had arrived.
 decode path, or a long list of operator-facing features we would otherwise build.
 
 ## ADR-0010 — Face recognition: self-hosted service vs embedded library vs commercial SDK
-Date: 2026-09-13 · Status: **OPEN**
+Date: 2026-09-13 · Accepted 2026-09-17 · Status: **ACCEPTED** (option b)
 
 **Options.** (a) Self-hosted recognition service with its own API and store.
 (b) Embedded library — we own detection, alignment, embedding, matching and the
 template store. (c) Commercial SDK.
 
-**Leaning:** (b). We already need our own template store with `model_ref`
+**Decision.** (b), embedded library. The stack is InsightFace `antelopev2`
+(SCRFD-10g face detector + `glintr100` ArcFace embedder), consumed as ONNX
+artefacts through the backend registry and pinned by sha256 in
+`models/registry.yaml` (ADR-0026). Thresholds are separate config fields per
+task — `face.gate_verify_threshold` for 1:1 and `face.canteen_match_threshold`
+for 1:N — and must never share a constant.
+
+**Reasoning.** (b). We already need our own template store with `model_ref`
 versioning (`DATA_MODEL.md`), matching thresholds must be ours to tune per
 door and per task (1:1 gate verification and 1:N canteen matching are different
 problems with different thresholds), and an embedded library keeps everything
@@ -216,15 +223,39 @@ pipeline undevelopable on macOS, and may have no ONNX path — breaking numerica
 parity testing entirely.
 
 **Hard constraints regardless:** templates never leave the site (rules out cloud
-APIs), the licence must permit commercial deployment, and the stack must include
-a liveness/anti-spoofing story for the gate (`THREAT_MODEL.md` §1) — photo and
-replay attacks are easy, obvious, and work against naive systems.
+APIs), and the stack must include a liveness/anti-spoofing story for the gate
+(`THREAT_MODEL.md` §1) — photo and replay attacks are easy, obvious, and work
+against naive systems.
+
+**Two constraints this decision does NOT satisfy, stated rather than buried:**
+
+1. **No liveness/anti-spoofing is implemented.** A printed photo or a phone
+   screen held to the gate camera will verify successfully. `THREAT_MODEL.md` §1
+   lists this as a requirement of the face decision, not an optional extra. The
+   only mitigation in place is the one that document already names — gate
+   cameras are supervised in practice. This must be said out loud at any
+   demonstration and must be closed before a pilot.
+2. **The `antelopev2` weights are published for non-commercial research use.**
+   The insightface *code* is MIT; the pretrained weights are not. Permitted here
+   under ADR-0030 (non-commercial test environment) and blocking for any
+   commercial deployment.
 
 **Changes it.** Measured accuracy on real doorway footage falling short of what
-an SDK demonstrably achieves — a question only M8/M9 footage can settle.
+an SDK demonstrably achieves — a question only M8/M9 footage can settle. A
+commercial deployment, which forces the weights question regardless of accuracy.
+
+**Consequences.** Every `face_template` row records `model_ref`; a model change
+invalidates every template and the process refuses to start rather than
+comparing embeddings across models. Enrolment becomes the most privileged write
+in the system (`PRIVACY_AND_COMPLIANCE.md` §5).
 
 ## ADR-0011 — Detection and pose model family, and licensing
-Date: 2026-09-13 · Accepted 2026-09-16 · Status: **ACCEPTED** (option b)
+Date: 2026-09-13 · Accepted 2026-09-16 · Superseded 2026-09-17
+Status: **SUPERSEDED by ADR-0030**
+
+> Superseded for the non-commercial test environment only. The reasoning below
+> stands and is the reasoning to return to the moment this project moves toward
+> commercial deployment. ADR-0030 records what changed and why.
 
 **Options.** (a) YOLO-family via Ultralytics (**AGPL-3.0** — a live constraint
 for a deployed commercial system, not a footnote). (b) Permissively licensed
@@ -244,7 +275,7 @@ reopens this ADR.
 client site; measured accuracy differences on doorway footage.
 
 ## ADR-0012 — Violence classifier approach
-Date: 2026-09-13 · Status: **OPEN**
+Date: 2026-09-13 · Accepted 2026-09-17 · Status: **ACCEPTED** (option c)
 
 **Context.** Public violence datasets are access-restricted and often poorly
 matched to overhead factory CCTV. No site footage exists. This is the weakest
@@ -257,13 +288,28 @@ data we can legitimately obtain — stronger in principle, needs data we may not
 get, harder to explain. (c) Trigger only, no classifier: pose heuristics send
 candidates straight to human review — no ML claims, higher reviewer load.
 
-**Leaning:** (c) for the demo, (a) as the first real classifier. Since the output
-is always a human queue (ADR-0001), a crude trigger with a decent recall rate is
-*useful* immediately, while a weak classifier is worse than none because it
-invites unearned trust.
+**Decision.** (c), trigger only. Pose keypoints from `yolo26m-pose` feed a
+documented weighted heuristic — wrist speed normalised by torso length,
+inter-person proximity, limb extension toward another person, pose energy — which
+sends candidates straight to the human review queue. There is no classifier and
+no model-derived score presented as a probability.
 
-**Changes it.** Access to a suitable dataset; site footage after M9; measured
-reviewer load making (c) impractical.
+**Reasoning.** Since the output is always a human queue (ADR-0001), a crude
+trigger with decent recall is *useful* immediately, while a weak classifier is
+worse than none because it invites unearned trust. Note what is **not** the
+reason: ADR-0030 lifted the licence constraint, so (b) is now technically
+available. It is still refused, because the datasets that would train it are
+hand-held and movie footage, and a classifier trained on them reports confident
+nonsense on an overhead CCTV angle (`FOOTAGE.md` §2). The blocker is evidence,
+not licensing.
+
+**Changes it.** Access to a suitable dataset *matched to the camera angle*; site
+footage after M9; measured reviewer load making (c) impractical.
+
+**Consequences.** `violence_candidate.classifier_score` exists in the schema and
+stays null. The UI must not imply an ML judgement, and no automated action may
+be attached to a candidate (`AGENTS.md` §2.4). An empty queue is not a success
+metric (`AGENTS.md` §8).
 
 ## ADR-0013 — Event bus / inter-process transport
 Date: 2026-09-13 · Accepted 2026-09-16 · Status: **ACCEPTED** (option a)
@@ -290,14 +336,31 @@ tempting for a single box but poor under concurrent writers from several
 pipelines. Accepted per the leaning below; no new evidence had arrived.
 
 ## ADR-0015 — Dashboard / review UI framework
-Date: 2026-09-13 · Status: **OPEN**
+Date: 2026-09-13 · Accepted 2026-09-17 · Status: **ACCEPTED** (option a)
 
 **Options.** (a) Server-rendered templates + minimal JS. (b) React/Next SPA
 against an API. (c) A low-code dashboard tool.
 
-**Leaning:** (a) for the review queue, which is the UI that matters and is mostly
-"a list, a video player, two buttons". (c) fails on the video-with-clip-seek
-requirement. (b) is justified only if the management dashboards grow.
+**Decision.** (a). FastAPI + Jinja2 + uvicorn, server-rendered, with roughly a
+hundred lines of vanilla JS. All MIT or BSD-3.
+
+**Reasoning.** (a) for the review queue, which is the UI that matters and is
+mostly "a list, a video player, two buttons". (c) fails on the
+video-with-clip-seek requirement. (b) is justified only if the management
+dashboards grow, and it would trigger ADR-0017's "JS only if ADR-0015 lands on a
+SPA". The deciding technical argument is not taste: `argus.store.db.Database`
+wraps `psycopg.AsyncConnection` and `EventBus` is asyncio end to end. A
+synchronous framework would mean either a duplicate synchronous database path or
+`asyncio.run()` per request; FastAPI reuses `Database`, `Store` and `EventBus`
+unchanged, and its typed parameters satisfy `disallow_untyped_defs` without
+ceremony.
+
+**Changes it.** Management dashboards growing past what server-rendered pages
+handle comfortably.
+
+**Consequences.** The UI reads stored rows and never recomputes derived values at
+request time — a number on screen that disagreed with the stored evidence would
+undermine the dispute path (ADR-0008). Enforced by a structural test.
 
 ## ADR-0016 — Deployment orchestration
 Date: 2026-09-13 · Accepted 2026-09-16 · Status: **ACCEPTED** (option a)
@@ -405,7 +468,7 @@ numerically at all.
 it removes the only evidence that dev and prod agree.
 
 ## ADR-0023 — Partial-day charging when one interval is flagged
-Date: 2026-09-13 · Status: **OPEN**
+Date: 2026-09-13 · Accepted 2026-09-17 · Status: **ACCEPTED** (option a)
 
 **Context.** `DATA_MODEL.md` §4 currently says any flagged interval in a day
 zeroes the whole day's overage.
@@ -413,20 +476,47 @@ zeroes the whole day's overage.
 **Options.** (a) Zero the whole day (current, strictest fail-open). (b) Charge
 clean intervals, flag the rest.
 
-**Leaning:** (a) until shadow-mode data shows how often it triggers. If it fires
-on most days, the system is not actually measuring anything and (b) is not the
-fix — better capture is.
+**Decision.** (a). Any interval in a local day that is not `RESOLVED` — and any
+resolved interval missing a clip on either end — flags the day, and a flagged day
+contributes exactly zero overage.
+
+**Reasoning.** (a) until shadow-mode data shows how often it triggers. If it
+fires on most days, the system is not actually measuring anything and (b) is not
+the fix — better capture is. Closing this now rather than leaving it OPEN because
+the pairing implementation has to encode one of the two, and an unrecorded choice
+made in code is the thing `AGENTS.md` §3 exists to prevent.
 
 **Changes it.** Measured flag rates during M9.
 
-## ADR-0024 — Product name
-Date: 2026-09-13 · Status: **OPEN**
+**Consequences.** The rule is **not** configurable. A `day_zeroing` policy field
+would put `AGENTS.md` §2.2 semantics — which cases resolve to a deduction —
+behind a YAML key. It is hard-coded in `argus.payroll.overage`, restated as a
+database check constraint on `dwell_day`, and changing it is a diff a human
+reads.
 
-`PROJECT_NAME` is a placeholder throughout. The working directory is `argus`,
-which is a directory name, not a decision. Worth a moment's thought that "Argus"
-— the hundred-eyed watchman — names the surveillance reading of this system
-rather than the measurement-and-audit reading we argue for in `SOUL.md`. Naming
-is not neutral when a buyer's auditor reads the slide.
+## ADR-0024 — Product name
+Date: 2026-09-13 · Accepted 2026-09-17 · Status: **ACCEPTED**
+
+**Context.** `PROJECT_NAME` was a placeholder throughout. The working directory
+is `argus`, which is a directory name, not a decision. Worth a moment's thought
+that "Argus" — the hundred-eyed watchman — names the surveillance reading of this
+system rather than the measurement-and-audit reading we argue for in `SOUL.md`.
+Naming is not neutral when a buyer's auditor reads the slide.
+
+**Decision.** The product is **Sparrow Vision**. The scope of the name is
+documents and product surfaces — the UI, reports, export artefacts. The code
+namespace stays `argus.`: import paths, distribution names, the `ARGUS_` env
+prefix, and the Postgres role are unchanged.
+
+**Reasoning.** A rename of the import namespace touches every file for no
+behavioural gain, and doing it inside a two-week window before a demonstration is
+mechanical risk bought with nothing. The split costs one sentence of explanation
+to a new reader and saves a day of churn.
+
+**Changes it.** Nothing technical. A trademark problem would.
+
+**Consequences.** `argus.` in code and `Sparrow Vision` in prose coexist
+deliberately. A follow-up rename is possible later and is not scheduled.
 
 ## ADR-0025 — CI provider
 Date: 2026-09-16 · Status: **ACCEPTED**
@@ -467,3 +557,171 @@ everyone). (c) is operational machinery this single-box project does not need.
 **Consequences.** First sync on a new machine is `uv run python models/fetch.py`
 before backend tests will pass; tests skip loudly, not silently, when the
 artefact is absent.
+
+## ADR-0027 — Enrolment images are retained, unencrypted, for the demo roster
+Date: 2026-09-17 · Status: **ACCEPTED** · Human sign-off: recorded 2026-09-17
+
+**Context.** `DATA_MODEL.md` §2 and `PRIVACY_AND_COMPLIANCE.md` §4 leave open
+whether enrolment images are kept after embedding. Keeping them allows
+re-embedding when the face model changes; discarding them shrinks the biometric
+footprint. This is a retention decision about biometric data, so `AGENTS.md` §2.5
+requires human sign-off, which was given.
+
+**Options.** (a) Discard after embedding. (b) Retain, encrypted at rest.
+(c) Retain in the clear.
+
+**Decision.** (c), scoped tightly: 5–10 consenting team members in a private,
+non-commercial test environment, images under `var/enrol/<person_id>/` (already
+git-ignored, mode 700), with a deletion date carried on the `consent_record` and
+enforced by `argus.enrol purge --expired`.
+
+**Reasoning.** The face stack is expected to change during the build, and (a)
+would mean gathering everyone back into a room each time. (b) is the right answer
+and needs a key-management story this project does not have yet — inventing one
+under demo pressure produces the appearance of protection rather than protection.
+(c) is honest about what it is.
+
+**Changes it.** Any enrolment of a person who is not a consenting member of the
+team. Any move toward a pilot. Either makes (b) a prerequisite, not an
+improvement.
+
+**Consequences.** There are plaintext face images and plaintext embeddings on a
+single box. That is acceptable only under the scope above and must not be carried
+forward silently. `purge` deletes images and embedding together, because
+`FOOTAGE.md` §5 warns that removing the video and leaving the embeddings behind
+is the easy mistake. Template encryption at rest remains unbuilt and is named in
+`PRIVACY_AND_COMPLIANCE.md` §2.
+
+## ADR-0028 — UI access control for the demo
+Date: 2026-09-17 · Status: **OPEN**
+
+**Context.** `PRIVACY_AND_COMPLIANCE.md` §5 defines four access tiers — viewer,
+reviewer, payroll, admin — and `THREAT_MODEL.md` §2 names casual clip browsing as
+the misuse most likely to happen and least likely to be reported. Building real
+per-person authentication does not fit the demo window.
+
+**Options.** (a) Per-role passphrase plus a typed actor name, bound to localhost.
+(b) Real per-person accounts with hashed credentials. (c) No authentication.
+
+**Leaning:** (a), with the limitation written down rather than glossed: it
+authenticates a *role*, not a *person*, and the actor name in the audit log is
+self-asserted. (c) is refused outright — an unaudited clip-viewing path
+contradicts the premise of the system (`ARCHITECTURE.md` §8).
+
+**What is built regardless of this ADR:** every clip view writes a
+`clip_access_log` row with actor, role, context and reason. The audit log is the
+only control that touches the voyeurism threat, and it does not depend on the
+authentication being good.
+
+**Changes it.** Anyone outside the immediate team getting access; the pilot.
+
+## ADR-0029 — PTZ cameras are used at fixed presets, with a drift check
+Date: 2026-09-17 · Status: **ACCEPTED**
+
+**Context.** The demo uses Imou pan-tilt cameras on doorways, while the doorway
+pipeline depends on a door line that is a fixed configuration constant. A lens
+that can move under a geometry that cannot is a latent contradiction, and
+`THREAT_MODEL.md` already names both halves: §2 "supervisor unplugs, reaims or
+covers a camera" and §5 "camera knocked out of alignment by cleaning".
+
+**Options.** (a) Fixed preset plus a reference-frame drift check. (b) Re-derive
+the door line per frame from scene understanding. (c) Accept the risk.
+
+**Decision.** (a). In each camera: auto-tracking, patrol and auto-home disabled,
+the aimed position saved as preset 1 and as the power-on position, and RTSP
+consumed through a **view-only account** that cannot drive PTZ even if the
+credential leaks. In software: a 160×90 grayscale phase-correlation check against
+a stored reference thumbnail every 30 s, hysteresis of three consecutive
+failures.
+
+**Reasoning.** (b) is a research project. (c) fails silently and in the worst
+direction — crossings attributed to a door the camera is no longer pointing at.
+`THREAT_MODEL.md` §2 already proposed exactly this mitigation and called it cheap.
+
+**Consequences.** On drift, the door pipeline **stops emitting doorway events**
+and opens a `stream_gap` with cause `aim_changed`. A camera pointing elsewhere
+means "we saw nothing", not "nothing happened" — which makes the fail-open
+behaviour automatic rather than remembered. Recalibration is a deliberate,
+logged command that renders the configured door line over a fresh frame for a
+human to accept; an auto-updating reference would track the drift it exists to
+detect.
+
+## ADR-0030 — AGPL model weights for the non-commercial test environment
+Date: 2026-09-17 · Status: **ACCEPTED** · Supersedes ADR-0011
+Human sign-off: recorded 2026-09-17 (`AGENTS.md` §2.9)
+
+**Context.** ADR-0011 restricted the project to permissively licensed models and
+excluded Ultralytics/AGPL, on the premise of an eventual commercial deployment at
+a factory. That premise does not currently hold: this is a personal,
+non-commercial test environment, the garments deployment is not in scope, and the
+bring-up detector chosen under that constraint (`ssd_mobilenet_v1`, 2018-era) is
+markedly weaker than current models.
+
+**Options.** (a) Keep ADR-0011 and accept 2018-era accuracy. (b) Permit AGPL
+weights, scoped to non-commercial use. (c) Buy commercial licences now.
+
+**Decision.** (b). Detection and pose come from the YOLO26 family
+(`yolo26m.onnx`, `yolo26m-pose.onnx`, AGPL-3.0); face recognition from InsightFace
+`antelopev2` (weights research-only). Both are recorded in
+`models/registry.yaml` with their real licences.
+
+**Reasoning.** The accuracy gap is large and the constraint that motivated
+ADR-0011 does not currently apply. Two things keep this from becoming a trap.
+First, the artefacts are consumed as **pre-exported ONNX** published by the
+upstream project, so `ultralytics` is never imported and no AGPL *code* enters
+the runtime — only the weights carry the licence. Second, every model sits behind
+`packages/argus_backends`, which application code reaches only through the
+registry, so replacing a model is a config change rather than a rewrite.
+
+**The boundary, stated so it cannot be missed.** These weights **may not ship in
+a commercial deployment**. Going commercial requires either an Ultralytics
+commercial licence and a resolution of the InsightFace weights question, or a
+swap to permissively licensed artefacts under ADR-0011's original reasoning.
+`models/registry.yaml` carries `commercial_use: false` on every affected entry,
+`models/fetch.py` warns on each, and a structural test requires every such
+artefact to be named in this document — which is what stops the demo posture
+quietly becoming the pilot posture.
+
+**Changes it.** Any move toward commercial use, a paying customer, or deployment
+at a real factory. Any of those reactivates ADR-0011.
+
+**Consequences.** ADR-0011 is SUPERSEDED, not deleted; its reasoning is the
+reasoning to return to. The backend abstraction becomes load-bearing for a
+licensing reason as well as a portability one — if it erodes, the escape hatch
+erodes with it.
+
+## ADR-0031 — Pre-trigger buffer holds encoded packets; ingest reads two streams
+Date: 2026-09-17 · Status: **ACCEPTED**
+
+**Context.** The pre-trigger ring buffer holds decoded `rgb24` frames. At the
+rig's 640×360 that is ~300 MB per camera and unremarkable. At the Imou fixed
+lens's 2304×1296 it is **~4 GB per camera** — 12 GB for three cameras, before any
+model loads, against a 16 GB target. `ARCHITECTURE.md` §5.8 says GPU memory is a
+budget that must be measured; host memory turned out to be the binding one.
+
+**Options.** (a) Keep decoded frames, shrink the window. (b) Buffer encoded
+packets and decode on demand. (c) Write continuously to disk and cut clips from
+files.
+
+**Decision.** (b), plus a second stream per camera. The ring holds H.264 packets
+(~23 MB total for three cameras at 15 s), and clips are produced by **remuxing**
+those packets rather than re-encoding decoded frames. Separately, each camera is
+opened twice: the **main** stream feeds the packet ring (evidence quality) and the
+**substream** (~704×576) feeds the sampled decode that pipelines consume.
+
+**Reasoning.** (a) trades away the pre-roll that violence clips exist for. (c) is
+an NVR, which ADR-0009 already declined to build. (b) is ~100× smaller, produces
+clips that are bit-identical to what the camera sent — which is what ADR-0008
+auditability actually wants — and removes hardware decode from the critical path,
+since nothing decodes the main stream continuously any more.
+
+**Consequences.** Clips snap back to the last keyframe at or before the requested
+start, so camera GOP length becomes an operational setting: I-frame interval is
+set to 1× fps on every camera, and the rig generator pins `gop_size = 30`.
+Eviction is GOP-aligned, with a byte cap alongside the duration bound. `pts`/`dts`
+are preserved and rebased rather than derived from wallclock. Clip extraction
+never materialises a list of decoded frames, and `max_clip_seconds` bounds the
+request. The two-stream choice assumes cameras accept two concurrent RTSP
+clients; if one refuses, it falls back to a single main-stream connection with
+sampled decode and downscale (`THREAT_MODEL.md` §3 names client-limit exhaustion
+as a real failure).

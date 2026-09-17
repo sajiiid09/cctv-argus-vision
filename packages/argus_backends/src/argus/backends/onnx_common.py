@@ -11,6 +11,8 @@ from __future__ import annotations
 import hashlib
 import os
 from dataclasses import dataclass
+from functools import lru_cache
+from importlib.metadata import distributions
 from pathlib import Path
 from typing import Any
 
@@ -96,11 +98,54 @@ def verify_hash(path: Path, expected: str) -> None:
         )
 
 
+class RuntimeEnvironmentError(Exception):
+    pass
+
+
+ORT_DISTRIBUTIONS = ("onnxruntime", "onnxruntime-gpu", "onnxruntime-openvino")
+
+
+@lru_cache(maxsize=1)
+def check_ort_environment() -> tuple[str, ...]:
+    """Refuse to run with more than one onnxruntime distribution installed.
+
+    They all unpack into the same ``onnxruntime`` package directory, so a second
+    one overwrites the first and uninstalling either can delete the shared
+    directory out from under the survivor. The symptom is never "conflicting
+    dependencies" -- it is a CUDA provider that has silently vanished, or an
+    ``onnxruntime`` that reports itself installed and refuses to import. Both
+    cost an afternoon if they are met without warning.
+
+    Declaring the groups conflicting in ``pyproject.toml`` does not help: uv
+    ignores conflict declarations on a workspace root that is not itself a
+    package. So the check lives here, where it also catches a pip install.
+    """
+    installed = tuple(
+        sorted(
+            name
+            for dist in distributions()
+            if (name := (dist.metadata["Name"] or "").lower()) in ORT_DISTRIBUTIONS
+        )
+    )
+    if len(set(installed)) > 1:
+        raise RuntimeEnvironmentError(
+            f"multiple onnxruntime distributions installed: {list(installed)}. "
+            "They share one package directory and overwrite each other. Install "
+            "exactly one: `uv sync --all-packages --group cpu` on a dev box, "
+            "`uv sync --all-packages --group staging` on the NVIDIA box. If you "
+            "have already hit this, repair with "
+            "`--reinstall-package onnxruntime` -- removing one distribution can "
+            "delete the shared directory the other still needs."
+        )
+    return installed
+
+
 def load_onnx_session(name: str, providers: list[str]) -> tuple[Any, ModelRef]:
     """Create an onnxruntime InferenceSession over a hash-verified artefact.
 
     onnxruntime is imported here and nowhere else (enforced by structural test).
     """
+    check_ort_environment()
     import onnxruntime as ort
 
     path = artefact_path(name)

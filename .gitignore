@@ -19,3 +19,6 @@ var/
 
 # local only
 .env
+
+# hypothesis example database: machine-local, never shared
+.hypothesis/

@@ -7,6 +7,8 @@ reference; the CUDA leg runs on staging, the CoreML leg on the Mac
 
 Decisions matter more than numbers: a verification flip fails regardless of
 how small the drift was (face embeddings will enforce that at M3).
+
+Run a non-default leg with ``ARGUS_PARITY_BACKEND=onnx-cuda uv run pytest -m golden``.
 """
 
 from __future__ import annotations
@@ -36,11 +38,19 @@ IOU_TOLERANCE = 0.95  # ARCHITECTURE.md §5.3: matched-box IoU vs reference
 SCORE_TOLERANCE = 0.05
 
 
+# Which backend this run compares against the committed reference. The reference
+# is produced on the CPU backend (ARCHITECTURE.md §5.3), so the default keeps CI
+# honest; the CUDA leg on staging and the CoreML leg on the Mac (ADR-0022) run
+# the same assertions against the same artefact hash by setting this. Without it
+# the CUDA leg -- an outstanding M2 exit criterion -- cannot be run at all.
+PARITY_BACKEND = os.environ.get("ARGUS_PARITY_BACKEND", "onnx-cpu")
+
+
 def _detector():
     try:
-        return get_detector("onnx-cpu")
+        return get_detector(PARITY_BACKEND)
     except Exception as e:
-        pytest.skip(f"onnx-cpu backend unavailable on this box: {e}")
+        pytest.skip(f"{PARITY_BACKEND} backend unavailable on this box: {e}")
 
 
 def _reference():

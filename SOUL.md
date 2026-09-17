@@ -4,7 +4,8 @@ This is the document that settles arguments. It is short on purpose. When two
 reasonable engineering choices conflict, resolve the conflict here first, then go
 back to the code.
 
-Working name for the system is `PROJECT_NAME`. The name is not decided.
+The system is called **Sparrow Vision** (ADR-0024). The code namespace stays
+`argus.`, which is a directory and import name, not a product name.
 
 ## What this is
 

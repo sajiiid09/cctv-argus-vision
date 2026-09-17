@@ -17,13 +17,19 @@ import logging
 import random
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 import av
 from argus.common.clock import Clock, SystemClock
 from argus.common.config import CameraConfig, IngestConfig
-from argus.ingest.ringbuffer import Frame, RingBuffer
+from argus.ingest.ringbuffer import (
+    CodecParams,
+    Frame,
+    PacketRecord,
+    PacketRingBuffer,
+    RingBuffer,
+)
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +43,9 @@ class GapRecorder(Protocol):
 class SourceStatus:
     camera_id: str
     state: str = "connecting"  # connecting | up | down | stopped
-    frames: int = 0
+    frames: int = 0  # DECODED frames emitted to pipelines (sampled, not demuxed)
+    packets: int = 0  # demuxed packets buffered as evidence
+    ring_bytes: int = 0  # packet ring occupancy — a leak shows here, not in dmesg
     reconnects: int = 0
     last_frame_ts: datetime | None = None
     open_cause: str | None = field(default=None)
@@ -45,6 +53,7 @@ class SourceStatus:
     def as_line(self) -> str:
         return (
             f"camera={self.camera_id} state={self.state} frames={self.frames} "
+            f"packets={self.packets} ring_bytes={self.ring_bytes} "
             f"reconnects={self.reconnects} last_frame="
             f"{self.last_frame_ts.isoformat() if self.last_frame_ts else 'never'}"
         )
@@ -89,6 +98,23 @@ class _Stop(Exception):
     pass
 
 
+def _codec_params(video: Any) -> CodecParams:
+    """Snapshot what a muxer needs, at session open.
+
+    ``extradata`` (SPS/PPS) is the part that is easy to forget and impossible to
+    recover later: without it a remuxed file opens and shows nothing.
+    """
+    ctx = video.codec_context
+    return CodecParams(
+        codec_name=ctx.name,
+        extradata=bytes(ctx.extradata) if ctx.extradata else None,
+        width=int(video.width or 0),
+        height=int(video.height or 0),
+        time_base=video.time_base,
+        average_rate=video.average_rate,
+    )
+
+
 class RTSPSource:
     def __init__(
         self,
@@ -102,9 +128,22 @@ class RTSPSource:
         self.cfg = cfg
         self.clock = clock or SystemClock()
         self.gaps = gaps
-        self.ring = RingBuffer(cfg.ring_buffer_seconds)
+        # Evidence path: encoded packets, the full pre-trigger window (ADR-0031).
+        self.packets = PacketRingBuffer(cfg.ring_buffer_seconds, cfg.ring_buffer_bytes)
+        # Analysis path: decoded frames, deliberately short and sampled.
+        self.ring = RingBuffer(cfg.analysis_buffer_seconds)
         self.status = SourceStatus(camera_id=camera.camera_id)
+        self._analysis_fps = cfg.fps_for(camera)
+        self._last_decode_mono: float | None = None
         self._subscribers: list[asyncio.Queue[Frame]] = []
+        self._packet_subscribers: list[asyncio.Queue[PacketRecord]] = []
+        # The live input stream, kept only while a session is open. Remuxing a
+        # clip needs a template stream: measured on PyAV 18, `add_mux_stream`
+        # and a rebuilt encoder stream are both rejected by the mp4 muxer
+        # (avformat_write_header, EINVAL), because neither carries usable
+        # extradata. `add_stream_from_template` works. When no session is open
+        # the clip store decodes and re-encodes instead.
+        self._template: Any | None = None
         self._stopping = asyncio.Event()
         self._open_gap_id: UUID | None = None
         self._close_task: asyncio.Task[None] | None = None
@@ -122,6 +161,21 @@ class RTSPSource:
     def unsubscribe(self, q: asyncio.Queue[Frame]) -> None:
         if q in self._subscribers:
             self._subscribers.remove(q)
+
+    @property
+    def template_stream(self) -> Any | None:
+        """Input stream of the open session, or None while reconnecting."""
+        return self._template
+
+    def subscribe_packets(self) -> asyncio.Queue[PacketRecord]:
+        """Live encoded packets, for a clip whose end is in the future."""
+        q: asyncio.Queue[PacketRecord] = asyncio.Queue(maxsize=self._queue_size)
+        self._packet_subscribers.append(q)
+        return q
+
+    def unsubscribe_packets(self, q: asyncio.Queue[PacketRecord]) -> None:
+        if q in self._packet_subscribers:
+            self._packet_subscribers.remove(q)
 
     def stop(self) -> None:
         self._stopping.set()
@@ -298,26 +352,66 @@ class RTSPSource:
         try:
             video = container.streams.video[0]
             video.thread_type = "AUTO"
+            self.packets.set_params(_codec_params(video))
+            self._template = video
             had_frames = False
+            interval = 1.0 / self._analysis_fps
             for packet in container.demux(video):
                 if stop_flag.is_set():
                     break
+                if packet.size == 0:
+                    continue  # PyAV's end-of-demux flush packet carries no data
+                now_ts = self.clock.now_utc()
+                self.packets.append(
+                    PacketRecord(
+                        ts_server=now_ts,
+                        pts=packet.pts,
+                        dts=packet.dts,
+                        duration=packet.duration,
+                        is_keyframe=bool(packet.is_keyframe),
+                        data=bytes(packet),
+                    )
+                )
+                self.status.packets += 1
+                self.status.ring_bytes = self.packets.nbytes()
+                loop.call_soon_threadsafe(self._fan_out_packet, self.packets.latest())
+
+                # Every packet is decoded — skipping one breaks the reference
+                # chain for every frame that depends on it. What is throttled is
+                # the rgb24 conversion and retention, which is the part that costs
+                # memory and most of the CPU.
+                mono = self.clock.monotonic()
+                due = self._last_decode_mono is None or (mono - self._last_decode_mono) >= interval
                 for frame in packet.decode():
-                    image = frame.to_ndarray(format="rgb24")
-                    ts_server = self.clock.now_utc()
-                    ts_media = float(frame.time) if frame.time is not None else None
-                    f = Frame(ts_server=ts_server, ts_media=ts_media, image=image)
                     had_frames = True
                     self._last_frame_mono = self.clock.monotonic()
+                    ts_server = self.clock.now_utc()
+                    self.status.last_frame_ts = ts_server
+                    if not due:
+                        continue
+                    self._last_decode_mono = mono
+                    due = False
+                    image = frame.to_ndarray(format="rgb24")
+                    ts_media = float(frame.time) if frame.time is not None else None
+                    f = Frame(ts_server=ts_server, ts_media=ts_media, image=image)
                     self.ring.append(f)
                     self.status.frames += 1
-                    self.status.last_frame_ts = ts_server
                     loop.call_soon_threadsafe(self._fan_out, f)
             if stop_flag.is_set():
                 raise _Stop()
             return had_frames
         finally:
+            self._template = None
             container.close()
+
+    def _fan_out_packet(self, packet: PacketRecord | None) -> None:
+        if packet is None:
+            return
+        for q in self._packet_subscribers:
+            if q.full():
+                with contextlib.suppress(asyncio.QueueEmpty):
+                    q.get_nowait()
+            q.put_nowait(packet)
 
     def _fan_out(self, frame: Frame) -> None:
         if self.status.state != "up":
