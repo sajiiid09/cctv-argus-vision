@@ -28,6 +28,22 @@ class CameraConfig:
     door_id: str | None = None
     direction_hint: str | None = None
     is_virtual: bool = False
+    # Second, lower-resolution stream for inference (ADR-0031). The main stream
+    # feeds the packet ring at evidence quality; this feeds the sampled decode.
+    # None means "analyse the main stream", which is the single-connection
+    # fallback for a camera that refuses two concurrent clients.
+    analysis_uri: str | None = None
+    # Sampled decode rate. None inherits IngestConfig.analysis_fps.
+    analysis_fps: float | None = None
+    # Door line as FRACTIONS of frame width/height, never pixels: the main and
+    # analysis streams have different resolutions, and pixel coordinates would be
+    # silently reinterpreted between them.
+    door_line: tuple[float, float, float, float] | None = None
+    # Which side of the line is inside the space: +1 or -1.
+    inside_sign: int = 1
+    # PTZ preset this camera is expected to sit at (ADR-0029). Recorded so a
+    # drift check has something to name when it fires.
+    preset_id: str | None = None
 
     def __post_init__(self) -> None:
         valid_roles = {"gate", "canteen_door", "floor"}
@@ -41,6 +57,34 @@ class CameraConfig:
                 f"camera {self.camera_id}: canteen_door cameras need space_id "
                 "(pairing is per canteen space, DATA_MODEL.md §4)"
             )
+        if self.analysis_fps is not None and self.analysis_fps <= 0:
+            raise ConfigError(
+                f"camera {self.camera_id}: analysis_fps must be positive, got {self.analysis_fps}"
+            )
+        if self.door_line is not None:
+            values = [float(v) for v in self.door_line]
+            if len(values) != 4:
+                raise ConfigError(
+                    f"camera {self.camera_id}: door_line must be [x1, y1, x2, y2] as "
+                    "fractions of frame size"
+                )
+            if not all(0.0 <= v <= 1.0 for v in values):
+                raise ConfigError(
+                    f"camera {self.camera_id}: door_line values are fractions of frame "
+                    f"size and must lie in [0, 1], got {values}"
+                )
+            if values[:2] == values[2:]:
+                raise ConfigError(f"camera {self.camera_id}: door_line endpoints are identical")
+            self.door_line = (values[0], values[1], values[2], values[3])
+        if self.inside_sign not in (1, -1):
+            raise ConfigError(
+                f"camera {self.camera_id}: inside_sign must be +1 or -1, got {self.inside_sign}"
+            )
+
+    @property
+    def inference_uri(self) -> str:
+        """The stream pipelines decode. Falls back to the main stream."""
+        return self.analysis_uri or self.source_uri
 
 
 @dataclass(slots=True)
@@ -72,7 +116,20 @@ class IngestConfig:
     stall_timeout_s: float = 5.0
     decode: str = "software"  # software | nvidia (probe falls back to software)
     reconnect: ReconnectConfig = field(default_factory=ReconnectConfig)
+    # Pre-trigger window, now held as encoded packets rather than decoded frames
+    # (ADR-0031). The name is unchanged because the meaning is unchanged: how far
+    # back a clip can reach.
     ring_buffer_seconds: float = 15.0
+    # Hard byte cap per camera on that buffer. The duration bound alone cannot
+    # stop a bitrate spike or a very long GOP from growing it.
+    ring_buffer_bytes: int = 128 * 1024 * 1024
+    # Decoded frames kept for pipelines. Short on purpose.
+    analysis_buffer_seconds: float = 2.0
+    # Default sampled decode rate; CameraConfig.analysis_fps overrides per camera.
+    analysis_fps: float = 8.0
+    # Longest clip that may be requested. Guards the decode fallback path, where
+    # a long range would otherwise mean gigabytes of decoded frames.
+    max_clip_seconds: float = 30.0
 
     def __post_init__(self) -> None:
         if self.stall_timeout_s <= 0:
@@ -81,8 +138,21 @@ class IngestConfig:
             raise ConfigError(
                 f"ring_buffer_seconds must be positive, got {self.ring_buffer_seconds}"
             )
+        if self.ring_buffer_bytes <= 0:
+            raise ConfigError(f"ring_buffer_bytes must be positive, got {self.ring_buffer_bytes}")
+        if self.analysis_buffer_seconds <= 0:
+            raise ConfigError(
+                f"analysis_buffer_seconds must be positive, got {self.analysis_buffer_seconds}"
+            )
+        if self.analysis_fps <= 0:
+            raise ConfigError(f"analysis_fps must be positive, got {self.analysis_fps}")
+        if self.max_clip_seconds <= 0:
+            raise ConfigError(f"max_clip_seconds must be positive, got {self.max_clip_seconds}")
         if self.decode not in ("software", "nvidia"):
             raise ConfigError(f"decode must be 'software' or 'nvidia', got {self.decode!r}")
+
+    def fps_for(self, camera: CameraConfig) -> float:
+        return camera.analysis_fps if camera.analysis_fps is not None else self.analysis_fps
 
 
 @dataclass(slots=True)
