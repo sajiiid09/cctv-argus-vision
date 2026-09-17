@@ -19,7 +19,21 @@ FORBIDDEN_IMPORTS = {
     "pycuda": "backends only (ARCHITECTURE.md §5.1)",
 }
 PAYROLL_ROOT = ROOT / "packages" / "argus_payroll" / "src" / "argus" / "payroll"
-PAYROLL_FORBIDDEN = ("numpy", "cv2", "av", "onnx", "torch", "PIL")
+# Vision, and also the database and the property-testing library. Payroll is a
+# pure function of (events, gaps, policy, code version): it must be importable
+# and testable with no database at all, and Hypothesis is a test-only dependency
+# that has no business inside the package it exercises.
+PAYROLL_FORBIDDEN = (
+    "numpy",
+    "cv2",
+    "av",
+    "onnx",
+    "torch",
+    "PIL",
+    "psycopg",
+    "argus.store",
+    "hypothesis",
+)
 PAYROLL_WALLCLOCK = ("datetime.now", "time.time", "utcnow", "datetime.today")
 
 
