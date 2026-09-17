@@ -1,4 +1,4 @@
-"""The door-event pairing state machine (DATA_MODEL.md §4).
+"""The door-event pairing state machine (ARCHITECTURE.md §7.3).
 
 This is the only file in the repository that can cost someone money. Every case
 in the §4 table has a branch here and a test named after it in
@@ -60,7 +60,7 @@ def interval_id(
 ) -> UUID:
     """Deterministic id for one interval.
 
-    uuid5, not uuid4: TESTING.md §2 property 4 requires recomputation over the
+    uuid5, not uuid4: AGENTS.md §7 property 4 requires recomputation over the
     same inputs to be identical, and a random id would force the comparison to
     exclude the id -- an exclusion that would then hide real nondeterminism.
     """

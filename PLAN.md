@@ -105,18 +105,18 @@ identity → direction → doorway event → pairing → dwell → overage → s
 
 **Exit.**
 - Enrolment flow for a handful of test identities (our own faces, or consented
-  volunteers — see `FOOTAGE.md`).
+  volunteers — see `ARCHITECTURE.md` §9).
 - Face detection + embedding + matching at a door region, with an identity
   threshold chosen from measured data, not a vendor default.
 - Direction from a short single-camera track over the door line. No re-ID.
 - Doorway events persisted append-only with clip references.
-- **Pairing state machine implemented to `DATA_MODEL.md` §4, with every case in
+- **Pairing state machine implemented to `ARCHITECTURE.md` §7.3, with every case in
   the table covered by a test.** Property tests: no input sequence produces a
   non-zero overage in a non-`RESOLVED` state.
 - Overage computed per local day; shadow report rendered; nothing exported.
 - Every payroll line resolves to a clip in under a minute, by hand, by someone
   who did not write the code.
-- Monitoring metrics from `THREAT_MODEL.md` §7 exist from day one: `unknown`
+- Monitoring metrics from `RISKS.md` §8 exist from day one: `unknown`
   face rate per door per hour, unpaired event rate per door per day, stream gap
   minutes per camera per day, flagged-day percentage.
 
@@ -221,7 +221,7 @@ real cameras where available and the virtual rig as fallback.
   rather than buried.
 - The audit path demonstrated live: pick a line, watch the clip, in under a
   minute.
-- A named list of what is not validated without site cameras (`FOOTAGE.md` §4),
+- A named list of what is not validated without site cameras (`ARCHITECTURE.md` §9.2),
   presented rather than hidden.
 
 **Not doing.** Turning the payroll flag on. Promising accuracy numbers from
@@ -246,7 +246,8 @@ is granted — which is why it runs in parallel rather than in sequence.
 - Headcount through the canteen doors per minute at peak, measured, not guessed.
 - Production hardware sized against measured camera count and resolution.
 
-**De-risks.** Everything in `FOOTAGE.md` §4. Most of the residual risk in this
+**De-risks.** Everything in `ARCHITECTURE.md` §9.2. Most of the residual risk in
+this
 project is here, and none of it can be retired from a desk.
 
 ---
@@ -264,7 +265,7 @@ error modes to show themselves.
 - Manual audit of a sample of computed overages against clips, by a human who is
   not us.
 - Dispute path exercised at least once, end to end.
-- Legal review and buyer-compliance review complete (`PRIVACY_AND_COMPLIANCE.md`).
+- Legal review and buyer-compliance review complete (`RISKS.md`).
 
 **Not doing.** Flipping the payroll flag. That is a separate, explicit decision
 after this milestone produces evidence, and it needs the sign-off described in

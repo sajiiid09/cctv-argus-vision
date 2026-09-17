@@ -1,4 +1,4 @@
-"""Golden-frame parity suite (ARCHITECTURE.md §5.3, TESTING.md §3).
+"""Golden-frame parity suite (ARCHITECTURE.md §5.3, AGENTS.md §7).
 
 The suite's job is not to prove backends agree; it is to make disagreement
 visible and bounded. On this box it runs the CPU leg against the committed
@@ -73,7 +73,7 @@ def test_artefact_hash_matches_reference() -> None:
     detector = _detector()
     assert detector.model_ref == ref["model_ref"], (
         "reference was produced from a different model file; comparing different "
-        "artefacts proves nothing (TESTING.md §3)"
+        "artefacts proves nothing (AGENTS.md §7)"
     )
 
 

@@ -52,7 +52,7 @@ jobs:
         env:
           ARGUS_MODELS_ROOT: ${{ github.workspace }}/models
         run: uv run pytest -v
-      - name: Ingest smoke (DEV_SETUP §5 list)
+      - name: Ingest smoke (AGENTS.md §5 list)
         env:
           ARGUS_MODELS_ROOT: ${{ github.workspace }}/models
         run: |

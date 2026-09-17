@@ -1,4 +1,4 @@
-"""Integration over RTSP from the virtual camera rig (TESTING.md §4).
+"""Integration over RTSP from the virtual camera rig (AGENTS.md §7).
 
 Every fault here has a corresponding expected behaviour (ARCHITECTURE.md §7),
 and the invariant behind all of them: **a gap is always recorded**.
@@ -101,7 +101,7 @@ async def test_stream_drop_records_gap_and_recovers(source, store, rig):
 
 
 async def test_stall_detected_not_hung(source, store, rig):
-    """SIGSTOP = connection open, no frames: the WiFi failure mode (TESTING.md §4)."""
+    """SIGSTOP = connection open, no frames: the WiFi failure mode (AGENTS.md §7)."""
     task = asyncio.create_task(source.run())
     try:
         assert await source.wait_until_up(timeout=30)
@@ -158,7 +158,7 @@ async def test_clip_extraction_plays(source, rig):
 
 async def test_never_connected_camera_surfaces_loudly(store, rig):
     """No frames ever: nothing to bound a gap from — must surface, not record
-    a bogus interval (THREAT_MODEL.md: 'we saw nothing' vs 'nothing happened')."""
+    a bogus interval (RISKS.md: 'we saw nothing' vs 'nothing happened')."""
     cam = make_door_camera(camera_id="ghost_camera", uri="rtsp://localhost:8554/nonexistent")
     await store.upsert_camera(cam)
     cfg = IngestConfig(

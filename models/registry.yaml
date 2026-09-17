@@ -1,6 +1,6 @@
 # Model artefact registry (ADR-0026). Binaries live in models/artifacts/
 # (git-ignored) and are fetched + sha256-verified by models/fetch.py.
-# Comparing outputs from two different model files proves nothing (TESTING.md §3).
+# Comparing outputs from two different model files proves nothing (AGENTS.md §7).
 artifacts:
   ssd_mobilenet_v1:
     file: artifacts/ssd_mobilenet_v1_10.onnx

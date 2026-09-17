@@ -132,7 +132,7 @@ class TestExtraction:
 
 class TestParams:
     def test_resolution_change_drops_the_buffer(self) -> None:
-        """TESTING.md §4 lists mid-stream resolution change as a fault to inject.
+        """AGENTS.md §7 lists mid-stream resolution change as a fault to inject.
         Muxing packets of two sizes into one stream yields a corrupt file, so the
         old packets go."""
         ring = _filled(gop=30, count=60, seconds=60.0)

@@ -1,7 +1,7 @@
 """Builders for pairing tests.
 
 Times are written as Asia/Dhaka wall clock, because that is how the policy and
-every case in DATA_MODEL.md §4 are expressed, and converted to the UTC instants
+every case in ARCHITECTURE.md §7.3 are expressed, and converted to the UTC instants
 the code actually works with. Writing UTC in the tests would mean doing the
 +06:00 arithmetic in one's head on every line, which is how a boundary test ends
 up asserting the wrong day.

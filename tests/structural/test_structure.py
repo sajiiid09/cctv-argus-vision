@@ -1,4 +1,4 @@
-"""Structural tests: they enforce architecture, not behaviour (TESTING.md §5).
+"""Structural tests: they enforce architecture, not behaviour (AGENTS.md §7).
 
 These properties erode quietly; the checks are deliberately dumb and strict.
 """
@@ -86,19 +86,19 @@ def test_payroll_reads_no_wall_clock() -> None:
         for token in PAYROLL_WALLCLOCK:
             if token in text:
                 offenders.append(f"{path.relative_to(ROOT)} contains {token}")
-    assert not offenders, "time is an input in payroll code (TESTING.md §2)"
+    assert not offenders, "time is an input in payroll code (AGENTS.md §7)"
 
 
 def test_golden_reference_committed() -> None:
     ref = ROOT / "tests" / "golden" / "reference" / "ssd_mobilenet_v1.json"
-    assert ref.exists(), "reference outputs must be committed (TESTING.md §3)"
+    assert ref.exists(), "reference outputs must be committed (AGENTS.md §7)"
     text = ref.read_text()
     assert '"model_ref"' in text and "@" in text, "reference must name its artefact hash"
 
 
 def test_rig_manifests_committed_and_licenced() -> None:
     manifests = list((ROOT / "rig" / "manifests").glob("*.yaml"))
-    assert manifests, "rig manifests are the committable part (FOOTAGE.md §3)"
+    assert manifests, "rig manifests are the committable part (ARCHITECTURE.md §6)"
     for m in manifests:
         text = m.read_text()
         assert "licence:" in text, f"{m.name} must record its licence"

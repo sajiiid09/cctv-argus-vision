@@ -1,4 +1,4 @@
-# Golden-frame provenance (FOOTAGE.md discipline: licence recorded next to file).
+# Golden-frame provenance (ARCHITECTURE.md §9 discipline: licence recorded next to file).
 frames:
   doorway_empty:      {source: synthetic (rig/synthetic/generate.py), licence: generated, detections: none expected}
   doorway_single:     {source: synthetic (rig/synthetic/generate.py), licence: generated, detections: none expected}

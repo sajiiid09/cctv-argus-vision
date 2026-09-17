@@ -1,4 +1,4 @@
-"""Clock discipline (ARCHITECTURE.md §5.8, TESTING.md §2).
+"""Clock discipline (ARCHITECTURE.md §5.8, AGENTS.md §7).
 
 Server time is the only authority for payroll-relevant timestamps; camera time
 is recorded, never used for arithmetic. ``now()`` does not exist in this module
@@ -31,7 +31,7 @@ class SystemClock:
 
 
 class FixedClock:
-    """Deterministic clock for tests. Time is an input (TESTING.md §2)."""
+    """Deterministic clock for tests. Time is an input (AGENTS.md §7)."""
 
     def __init__(self, start: datetime, monotonic_start: float = 0.0) -> None:
         if start.tzinfo is None:
@@ -66,6 +66,6 @@ def local_day(ts: datetime, tz: ZoneInfo) -> date:
     """The local calendar day a UTC timestamp belongs to.
 
     Pay periods, the canteen allowance and day attribution are local-day
-    concepts; this is the single place the conversion happens (DATA_MODEL.md §1).
+    concepts; this is the single place the conversion happens (ARCHITECTURE.md §7.1).
     """
     return to_local(ts, tz).date()

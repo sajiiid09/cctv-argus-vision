@@ -18,7 +18,7 @@ term the factory uses.
 **Seat / workstation** — a fixed position on a line, assigned to an operator.
 Because assignment is fixed, a seat identifies a person via the roster — which is
 why we need no floor tracking (ADR-0002), and why per-seat occupancy is less
-anonymous than its schema suggests (`PRIVACY_AND_COMPLIANCE.md` §3).
+anonymous than its schema suggests (`RISKS.md` §3).
 
 **Bundle** — a tied batch of cut pieces moving along the line. Operators
 sometimes leave their seat to collect or pass bundles, which is one reason an
@@ -47,7 +47,7 @@ pay.
 **Allowance** — the permitted canteen time. Policy, not a constant in code.
 
 **BSCI / SMETA / WRAP** — buyer-driven social-compliance audit schemes. They will
-examine any camera-driven wage deduction. See `PRIVACY_AND_COMPLIANCE.md` §7.
+examine any camera-driven wage deduction. See `RISKS.md` §12.
 
 ---
 
@@ -62,7 +62,7 @@ across the door line. Not tracking, not re-ID: it lasts a second or two and dies
 at the door.
 
 **Pairing** — turning doorway events into dwell intervals via the state machine
-in `DATA_MODEL.md` §4. Where the care lives.
+in `ARCHITECTURE.md` §7.3. Where the care lives.
 
 **Dwell / dwell interval** — time between a paired enter and exit, per canteen
 *space* (not per door: a canteen with two doors is one space).
@@ -105,7 +105,7 @@ is the CI video source and the demo-day fallback. `ARCHITECTURE.md` §6.
 payroll export.
 
 **Golden frame** — a committed frame or clip with reference model outputs, used
-to measure backend divergence across platforms. `TESTING.md` §3.
+to measure backend divergence across platforms. `AGENTS.md` §7.
 
 **Parity / divergence** — how far a backend's output sits from the reference. The
 goal is bounded and visible, not zero.

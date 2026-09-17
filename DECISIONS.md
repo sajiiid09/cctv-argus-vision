@@ -213,7 +213,7 @@ task — `face.gate_verify_threshold` for 1:1 and `face.canteen_match_threshold`
 for 1:N — and must never share a constant.
 
 **Reasoning.** (b). We already need our own template store with `model_ref`
-versioning (`DATA_MODEL.md`), matching thresholds must be ours to tune per
+versioning (`ARCHITECTURE.md` §7), matching thresholds must be ours to tune per
 door and per task (1:1 gate verification and 1:N canteen matching are different
 problems with different thresholds), and an embedded library keeps everything
 behind `FaceEmbedder` with an ONNX artefact the parity suite can test. (a) adds
@@ -224,13 +224,13 @@ parity testing entirely.
 
 **Hard constraints regardless:** templates never leave the site (rules out cloud
 APIs), and the stack must include a liveness/anti-spoofing story for the gate
-(`THREAT_MODEL.md` §1) — photo and replay attacks are easy, obvious, and work
+(`RISKS.md` §4) — photo and replay attacks are easy, obvious, and work
 against naive systems.
 
 **Two constraints this decision does NOT satisfy, stated rather than buried:**
 
 1. **No liveness/anti-spoofing is implemented.** A printed photo or a phone
-   screen held to the gate camera will verify successfully. `THREAT_MODEL.md` §1
+   screen held to the gate camera will verify successfully. `RISKS.md` §4
    lists this as a requirement of the face decision, not an optional extra. The
    only mitigation in place is the one that document already names — gate
    cameras are supervised in practice. This must be said out loud at any
@@ -247,7 +247,7 @@ commercial deployment, which forces the weights question regardless of accuracy.
 **Consequences.** Every `face_template` row records `model_ref`; a model change
 invalidates every template and the process refuses to start rather than
 comparing embeddings across models. Enrolment becomes the most privileged write
-in the system (`PRIVACY_AND_COMPLIANCE.md` §5).
+in the system (`RISKS.md` §10).
 
 ## ADR-0011 — Detection and pose model family, and licensing
 Date: 2026-09-13 · Accepted 2026-09-16 · Superseded 2026-09-17
@@ -300,7 +300,8 @@ worse than none because it invites unearned trust. Note what is **not** the
 reason: ADR-0030 lifted the licence constraint, so (b) is now technically
 available. It is still refused, because the datasets that would train it are
 hand-held and movie footage, and a classifier trained on them reports confident
-nonsense on an overhead CCTV angle (`FOOTAGE.md` §2). The blocker is evidence,
+nonsense on an overhead CCTV angle (`ARCHITECTURE.md` §9.1). The blocker is
+evidence,
 not licensing.
 
 **Changes it.** Access to a suitable dataset *matched to the camera angle*; site
@@ -470,7 +471,7 @@ it removes the only evidence that dev and prod agree.
 ## ADR-0023 — Partial-day charging when one interval is flagged
 Date: 2026-09-13 · Accepted 2026-09-17 · Status: **ACCEPTED** (option a)
 
-**Context.** `DATA_MODEL.md` §4 currently says any flagged interval in a day
+**Context.** `ARCHITECTURE.md` §7.3 currently says any flagged interval in a day
 zeroes the whole day's overage.
 
 **Options.** (a) Zero the whole day (current, strictest fail-open). (b) Charge
@@ -561,7 +562,7 @@ artefact is absent.
 ## ADR-0027 — Enrolment images are retained, unencrypted, for the demo roster
 Date: 2026-09-17 · Status: **ACCEPTED** · Human sign-off: recorded 2026-09-17
 
-**Context.** `DATA_MODEL.md` §2 and `PRIVACY_AND_COMPLIANCE.md` §4 leave open
+**Context.** `ARCHITECTURE.md` §7.2 and `RISKS.md` §9 leave open
 whether enrolment images are kept after embedding. Keeping them allows
 re-embedding when the face model changes; discarding them shrinks the biometric
 footprint. This is a retention decision about biometric data, so `AGENTS.md` §2.5
@@ -588,15 +589,16 @@ improvement.
 **Consequences.** There are plaintext face images and plaintext embeddings on a
 single box. That is acceptable only under the scope above and must not be carried
 forward silently. `purge` deletes images and embedding together, because
-`FOOTAGE.md` §5 warns that removing the video and leaving the embeddings behind
+`ARCHITECTURE.md` §9.1 warns that removing the video and leaving the embeddings
+behind
 is the easy mistake. Template encryption at rest remains unbuilt and is named in
-`PRIVACY_AND_COMPLIANCE.md` §2.
+`RISKS.md` §2.
 
 ## ADR-0028 — UI access control for the demo
 Date: 2026-09-17 · Status: **OPEN**
 
-**Context.** `PRIVACY_AND_COMPLIANCE.md` §5 defines four access tiers — viewer,
-reviewer, payroll, admin — and `THREAT_MODEL.md` §2 names casual clip browsing as
+**Context.** `RISKS.md` §10 defines four access tiers — viewer, reviewer,
+payroll, admin — and `RISKS.md` §5 names casual clip browsing as
 the misuse most likely to happen and least likely to be reported. Building real
 per-person authentication does not fit the demo window.
 
@@ -621,7 +623,7 @@ Date: 2026-09-17 · Status: **ACCEPTED**
 **Context.** The demo uses Imou pan-tilt cameras on doorways, while the doorway
 pipeline depends on a door line that is a fixed configuration constant. A lens
 that can move under a geometry that cannot is a latent contradiction, and
-`THREAT_MODEL.md` already names both halves: §2 "supervisor unplugs, reaims or
+`RISKS.md` already names both halves: §5 "supervisor unplugs, reaims or
 covers a camera" and §5 "camera knocked out of alignment by cleaning".
 
 **Options.** (a) Fixed preset plus a reference-frame drift check. (b) Re-derive
@@ -636,7 +638,7 @@ failures.
 
 **Reasoning.** (b) is a research project. (c) fails silently and in the worst
 direction — crossings attributed to a door the camera is no longer pointing at.
-`THREAT_MODEL.md` §2 already proposed exactly this mitigation and called it cheap.
+`RISKS.md` §5 already proposed exactly this mitigation and called it cheap.
 
 **Consequences.** On drift, the door pipeline **stops emitting doorway events**
 and opens a `stream_gap` with cause `aim_changed`. A camera pointing elsewhere
@@ -723,5 +725,5 @@ are preserved and rebased rather than derived from wallclock. Clip extraction
 never materialises a list of decoded frames, and `max_clip_seconds` bounds the
 request. The two-stream choice assumes cameras accept two concurrent RTSP
 clients; if one refuses, it falls back to a single main-stream connection with
-sampled decode and downscale (`THREAT_MODEL.md` §3 names client-limit exhaustion
+sampled decode and downscale (`RISKS.md` §6 names client-limit exhaustion
 as a real failure).

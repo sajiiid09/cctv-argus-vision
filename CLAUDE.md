@@ -17,8 +17,8 @@ distinction between payroll-affecting code and everything else.
 **M0 closed, M1 and M2 implemented; the Linux/CPU leg is verified.** M3+ is in
 progress against a two-week demo deadline (`PLAN.md`, and the plan file the work
 is following). The pairing state machine in `packages/argus_payroll` is **built
-and tested** — full `DATA_MODEL.md` §4 case table plus eight property tests — but
-nothing produces doorway events yet, so it runs on no real data.
+and tested** — full `ARCHITECTURE.md` §7.3 case table plus eight property tests —
+but nothing produces doorway events yet, so it runs on no real data.
 
 This deployment is a **personal, non-commercial test environment**: ADR-0030
 permits AGPL and research-only model weights on that basis and records the
@@ -34,7 +34,7 @@ cannot tell whether you are in one, stop and find out — do not guess.
 
 ## Commands
 
-Same on every platform (`AGENTS.md` "Commands", `DEV_SETUP.md` §2).
+Same on every platform (`AGENTS.md` §5).
 
 ```bash
 uv sync --all-packages --group cpu       # dev env. `--group staging` on the NVIDIA box — NEVER both

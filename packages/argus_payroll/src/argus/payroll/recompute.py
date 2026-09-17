@@ -87,7 +87,7 @@ def run_pairing(
 
 
 def _interval_sort_key(interval: Interval) -> tuple[str, str, str, str]:
-    """Total order, independent of input order (TESTING.md §2 property 7)."""
+    """Total order, independent of input order (AGENTS.md §7 property 7)."""
     anchor = interval.start_utc or interval.end_utc
     assert anchor is not None
     return (

@@ -55,7 +55,7 @@ class CameraConfig:
         if self.role == "canteen_door" and not self.space_id:
             raise ConfigError(
                 f"camera {self.camera_id}: canteen_door cameras need space_id "
-                "(pairing is per canteen space, DATA_MODEL.md §4)"
+                "(pairing is per canteen space, ARCHITECTURE.md §7.3)"
             )
         if self.analysis_fps is not None and self.analysis_fps <= 0:
             raise ConfigError(

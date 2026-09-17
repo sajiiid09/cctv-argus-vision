@@ -62,7 +62,7 @@ class DoorEvent:
     direction: Direction
     door_id: str | None = None
     # What the camera said the time was. Recorded for audit and NEVER used in
-    # arithmetic (DATA_MODEL.md §1) -- its only job here is to make the
+    # arithmetic (ARCHITECTURE.md §7.1) -- its only job here is to make the
     # clock-anomaly row of the §4 case table detectable, by disagreeing with
     # ts_utc by more than the policy tolerates.
     ts_camera_reported: datetime | None = None
@@ -70,7 +70,7 @@ class DoorEvent:
     match_confidence: float | None = None
     clip_ref: str | None = None
     # Set on the LATER of two detections of the same crossing, pointing at the
-    # earlier one, which is the row that survives (DATA_MODEL.md §4). Pairing
+    # earlier one, which is the row that survives (ARCHITECTURE.md §7.3). Pairing
     # ignores any event that sets it.
     duplicate_of: UUID | None = None
 
@@ -84,7 +84,7 @@ class Gap:
     # Resolved by the caller from camera.space_id. Pairing is per space, so a gap
     # on ANY door camera of that space affects intervals in it -- the unseen exit
     # might have been at the other door. Attributing gaps per door would
-    # under-flag exactly the multi-door case DATA_MODEL.md §4 calls out.
+    # under-flag exactly the multi-door case ARCHITECTURE.md §7.3 calls out.
     space_id: str | None = None
 
 

@@ -1,6 +1,6 @@
 """Pairing policy: every threshold that decides a number, in one frozen object.
 
-Each PROVISIONAL constant in DATA_MODEL.md §4 is a named field here rather than
+Each PROVISIONAL constant in ARCHITECTURE.md §7.3 is a named field here rather than
 a literal inside a branch, so that changing one is visible in a diff and
 recorded in the run that used it.
 
@@ -32,13 +32,13 @@ class PairingPolicy:
     # The canteen allowance, per local day, across all visits -- not per visit.
     # 3600 in production; the demo runs 120 and says so out loud.
     allowance_s: int = 3600
-    # DATA_MODEL.md §4 plausibility bounds. PROVISIONAL.
+    # ARCHITECTURE.md §7.3 plausibility bounds. PROVISIONAL.
     min_dwell_s: int = 60
     max_dwell_s: int = 10800
     # Two detections of one crossing inside this window are one crossing.
     duplicate_window_s: float = 3.0
     # Below this match confidence an identification is treated as unknown.
-    # Never a best guess (THREAT_MODEL.md §1).
+    # Never a best guess (RISKS.md §4).
     identity_threshold: float = 0.0
     # How far the camera-reported time may disagree with the server clock before
     # the pair is called a clock anomaly. PROVISIONAL: cameras drift by seconds
@@ -61,7 +61,7 @@ class PairingPolicy:
             raise PolicyError(
                 f"max_dwell_s ({self.max_dwell_s}) must be under 24h: day attribution "
                 "assumes an interval crosses at most one local midnight "
-                "(DATA_MODEL.md §4)"
+                "(ARCHITECTURE.md §7.3)"
             )
         if self.duplicate_window_s <= 0:
             raise PolicyError(f"duplicate_window_s must be positive, got {self.duplicate_window_s}")

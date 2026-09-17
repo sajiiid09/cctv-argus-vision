@@ -24,14 +24,14 @@ def ordered(events: Iterable[DoorEvent]) -> list[DoorEvent]:
 
     The tie-break is not cosmetic: two events sharing a timestamp must order the
     same way on every run, or recomputation stops being deterministic
-    (TESTING.md §2 property 4).
+    (AGENTS.md §7 property 4).
     """
     out = list(events)
     for event in out:
         if event.ts_utc.tzinfo is None:
             raise NormaliseError(
                 f"event {event.event_id} has a naive timestamp; storage is UTC and "
-                "tz-aware (DATA_MODEL.md §1)"
+                "tz-aware (ARCHITECTURE.md §7.1)"
             )
     return sorted(out, key=lambda e: (e.ts_utc, str(e.event_id)))
 
@@ -108,7 +108,7 @@ def group_by_person_space(
 
     Per space, never per door: entering by one door and leaving by another is
     ordinary behaviour, and a per-door machine would flag half the workforce
-    every day (DATA_MODEL.md §4).
+    every day (ARCHITECTURE.md §7.3).
     """
     groups: dict[tuple[str, str], list[DoorEvent]] = {}
     for event in events:

@@ -46,31 +46,33 @@ re-identification. Identity is resolved **only at doorways** (ADR-0002).
 | If you are | Read |
 |---|---|
 | New to the project | `SOUL.md`, then this file's table, then `ARCHITECTURE.md` |
-| Building something | `AGENTS.md`, `ARCHITECTURE.md`, `DATA_MODEL.md` |
+| Building something | `AGENTS.md`, `ARCHITECTURE.md` |
 | An AI coding agent | `AGENTS.md` first, `SOUL.md` second. Both, before code |
 | Wondering why X was chosen | `DECISIONS.md` |
-| Touching payroll logic | `DATA_MODEL.md` §4, `TESTING.md` §2, `AGENTS.md` §1–2 |
-| Setting up a machine | `DEV_SETUP.md` (all of it unverified) |
-| Worried about privacy or audits | `PRIVACY_AND_COMPLIANCE.md`, `THREAT_MODEL.md` |
+| Touching payroll logic | `ARCHITECTURE.md` §7.3, `AGENTS.md` §1–2, §7 |
+| Setting up a machine | `AGENTS.md` §5–6 (macOS leg unverified) |
+| Worried about privacy or audits | `RISKS.md` |
 | Planning the next few weeks | `PLAN.md` |
 | Confused by a word | `GLOSSARY.md` |
 
 ## Documents
 
+Six, deliberately. Thirteen documents drifted apart faster than anyone read
+them; each of these now owns one question and absorbs what used to be scattered.
+
 - `SOUL.md` — why this exists, who it can harm, the standard of care. Short.
-- `ARCHITECTURE.md` — system shape, the doorway-only-identity decision, the
-  macOS↔Linux cross-platform strategy, the virtual camera rig, failure modes.
-- `PLAN.md` — milestones to demo and pilot; what is blocked on hardware.
-- `AGENTS.md` — how to work here; what needs human sign-off.
+- `AGENTS.md` — how to work here: what needs human sign-off, directory
+  conventions, commands, environments (former `DEV_SETUP.md`) and the testing
+  bars (former `TESTING.md`).
+- `ARCHITECTURE.md` — system shape, doorway-only identity, the cross-platform
+  strategy, the virtual camera rig, the data model and pairing state machine
+  (former `DATA_MODEL.md`), failure modes, and footage needs (former
+  `FOOTAGE.md`).
+- `RISKS.md` — how this gets gamed and who it can harm: attacks on the
+  measurement and on the people measured, retention, access, buyer audits, open
+  legal questions (former `THREAT_MODEL.md` + `PRIVACY_AND_COMPLIANCE.md`).
 - `DECISIONS.md` — ADR log: what is decided, what is open, and why.
-- `DATA_MODEL.md` — entities and the door-event pairing state machine.
-- `PRIVACY_AND_COMPLIANCE.md` — biometrics, retention, access, buyer audits, open
-  legal questions.
-- `DEV_SETUP.md` — macOS and Ubuntu paths. Unverified.
-- `TESTING.md` — golden-frame parity, and the stricter bar for payroll code.
-- `THREAT_MODEL.md` — how this gets gamed, by workers and by staff.
-- `FOOTAGE.md` — what video we need, and what cannot be validated without real
-  cameras.
+- `PLAN.md` — milestones to demo and pilot; what is blocked on hardware.
 - `GLOSSARY.md` — shared vocabulary.
 
 ## Environment, in one line
@@ -85,4 +87,4 @@ suite. `ARCHITECTURE.md` §5 is the substantial part of this.
 Everything through the first several milestones runs on synthetic and recorded
 video served over RTSP, indistinguishable from a camera at the pipeline boundary.
 The rig is infrastructure, not a fixture: CI video source and demo-day fallback.
-`ARCHITECTURE.md` §6, `FOOTAGE.md`.
+`ARCHITECTURE.md` §6 and §9.
