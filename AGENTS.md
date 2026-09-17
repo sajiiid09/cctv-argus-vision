@@ -1,52 +1,36 @@
 # AGENTS.md
 
 Operating instructions for AI coding agents (and humans) working in this repo.
+Absorbs the former `TESTING.md` and `DEV_SETUP.md`.
 
 Read `SOUL.md` first. It is short, and it decides most arguments this document
 would otherwise have to have.
 
-**Current state as of 2026-09-16: M0 closed, M1 (rig + ingest) implemented and
-verified on Linux/CPU, M2 (backend abstraction + golden-frame parity) implemented
-with the CPU leg verified.** No payroll logic exists yet. The remaining M1 exit
-criterion is GPU decode on the RTX staging box; the M2 CUDA/CoreML parity legs
-run on their machines. Sections previously marked **UNBUILT** now describe real
-code — update them if reality diverges.
+**Current state, 2026-09-17.** M0 closed. M1 (rig + ingest) and M2 (backends +
+parity) implemented and verified on Linux/CPU. The pairing state machine
+(`packages/argus_payroll`) is built and tested but runs on no real data yet,
+because nothing produces doorway events. Outstanding: GPU decode and the CUDA
+parity leg, both needing the NVIDIA box. M3+ is in progress against a two-week
+demo deadline. Update this paragraph when it stops being true.
 
-### Commands (same on every platform)
-
-```bash
-uv sync --all-packages --group cpu      # dev environment (CPU onnxruntime)
-uv sync --all-packages --group staging  # NVIDIA box instead — NEVER both (see below)
-uv run pytest -q                        # tests; rig/store/golden skip loudly without services
-uv run ruff check . && uv run ruff format --check . && uv run mypy
-uv run python models/fetch.py           # fetch + hash-verify model artefacts (ADR-0026)
-docker compose -f infra/compose.dev.yaml up -d        # Postgres + mediamtx
-uv run python rig/synthetic/generate.py # deterministic rig footage + manifests
-uv run python rig/bin/rig_serve.py      # serve the virtual cameras
-uv run python rig/bin/rig_rigctl.py status|pause|resume|stop|start <stream>
-uv run python -m argus.ingest --config config/dev.yaml
-```
-
-If host port 5432 is busy: `ARGUS_PG_HOST_PORT=5434` on compose and
-`ARGUS_DATABASE__DSN=postgresql://argus:argus@localhost:5434/argus` for tests
-(`ARGUS_TEST_DSN` likewise).
+**This deployment is a personal, non-commercial test environment.** ADR-0030
+permits AGPL and research-only model weights on that basis and states the
+boundary: they may not ship commercially.
 
 ---
 
 ## 1. The one distinction that matters
 
-Code in this repo falls into two categories, and they are worked on differently:
+Code here falls into two categories, worked on differently.
 
-**Payroll-affecting paths.** Canteen doorway events, the pairing state machine,
-dwell and overage computation, the payroll export, the shadow-mode flag, the
-clock/timezone handling they depend on, and the retention rules protecting their
-clips.
+**Payroll-affecting.** Canteen doorway events, the pairing state machine, dwell
+and overage, the payroll export, the shadow-mode flag, the clock/timezone
+handling they depend on, and the retention rules protecting their clips.
 
-**Everything else.** Occupancy, violence detection, dashboards, ingest
-plumbing, tooling.
+**Everything else.** Occupancy, violence detection, dashboards, ingest plumbing,
+tooling.
 
-If you cannot tell which category you are in, **stop and find out**. Do not
-guess. The difference in required care is large:
+If you cannot tell which you are in, **stop and find out**. Do not guess.
 
 | | Payroll-affecting | Everything else |
 |---|---|---|
@@ -56,20 +40,18 @@ guess. The difference in required care is large:
 | Ambiguity | Must resolve to zero deduction + flag | Use judgement |
 | Refactors | Behaviour-preserving only, proven by tests, separate commit | Normal |
 
----
-
 ## 2. Human sign-off — required, no exceptions
 
-Agents do not do these autonomously. Stop, state what you propose, wait for a
-human answer. The team is effectively one engineer plus agents, so these gates
-are kept few and cheap enough to actually be used.
+Agents do not do these autonomously. Stop, state what you propose, wait for an
+answer. The team is one engineer plus agents, so these gates are kept few and
+cheap enough to actually be used.
 
 1. **Turning on the payroll export flag** (leaving shadow mode), or any change
-   that makes export possible without the flag.
+   that makes export possible without it.
 2. **Changing the pairing state machine's semantics** — which cases resolve to a
    deduction, thresholds, allowance windows, day-boundary attribution.
-3. **Anything that connects occupancy data to a person or to pay**, including a
-   schema change that creates the join path.
+3. **Connecting occupancy data to a person or to pay**, including a schema change
+   that creates the join path.
 4. **Adding automated action to the violence pipeline** — notification, naming,
    incident creation. The output is a human review queue. That is the design.
 5. **Changing retention or deletion** of clips, events or biometric templates.
@@ -77,150 +59,230 @@ are kept few and cheap enough to actually be used.
    error tracker, a log aggregator or a model vendor's API.
 7. **Adding cross-camera re-identification or floor-wide tracking** (ADR-0002).
 8. **Changing anything asserted in `SOUL.md`.**
-9. **Adding a dependency with a licence that restricts commercial deployment**
-   (AGPL in particular). This gate was **exercised on 2026-09-17**: ADR-0030
-   permits AGPL model weights for the non-commercial test environment and
-   supersedes ADR-0011. The gate is not retired — it moved. Anything that would
-   ship commercially reactivates ADR-0011's reasoning.
+9. **Adding a dependency whose licence restricts commercial deployment.** This
+   gate was exercised on 2026-09-17: ADR-0030 permits AGPL model weights for the
+   non-commercial test environment. The gate moved, it did not retire — anything
+   heading for commercial use reactivates ADR-0011's reasoning.
 
-A pattern that looks like an exception but is not: "just for the demo". Demo
+A pattern that looks like an exception and is not: "just for the demo". Demo
 pressure is the most common reason these gates get skipped, and a demo that
-deducts real pay from real people is the exact failure this project is built to
+deducts real pay from real people is the exact failure this project exists to
 avoid.
-
----
 
 ## 3. What needs an ADR before changing
 
-An ADR (`DECISIONS.md`) is needed to change any ACCEPTED decision, and to close
-any OPEN one. In particular: scope (ADR-0001), doorway-only identity (ADR-0002),
-two-separate-numbers (ADR-0003), fail-open (ADR-0004), shadow mode (ADR-0005),
-the no-write-to-payroll boundary (ADR-0006), auditability (ADR-0008).
+An ADR (`DECISIONS.md`) is needed to change any ACCEPTED decision and to close
+any OPEN one. In particular: scope (0001), doorway-only identity (0002), two
+separate numbers (0003), fail-open (0004), shadow mode (0005), the
+no-write-to-payroll boundary (0006), auditability (0008).
 
-Also ADR-worthy even though nothing is decided yet: choosing the database, the
-face stack, the detection model family, the dependency tool, the Python version.
 Closing an OPEN ADR is a decision — record it, do not just start using the thing.
-
-Write the ADR *before* the code, not as documentation afterwards. An ADR written
-after implementation is a justification, not a decision.
-
----
+Write the ADR *before* the code. An ADR written afterwards is a justification,
+not a decision.
 
 ## 4. Directory conventions
 
-Built layout (2026-09-16):
-
 ```
-docs/            these documents (currently at root; may move)
-services/        long-running processes (ingest, analysis workers, api)
+services/        long-running processes (ingest, analysis, gate, ui)
 packages/        shared libraries
-  backends/      inference backends — the ONLY place a backend is imported
-  pipelines/     gate, canteen, occupancy, violence
-  payroll/       pairing, overage, export — the high-care code, isolated
-  store/         event store, clip store
-infra/           compose files, systemd units, mediamtx config (Linux-facing)
-rig/             virtual camera rig: footage manifests, serving config
-tests/
-  golden/        golden frames, clips, reference outputs
-models/          ONNX artefacts referenced by hash (or a pointer file; see below)
+  argus_backends/   inference backends — the ONLY place a runtime is imported
+  argus_pipelines/  gate, canteen, occupancy, violence
+  argus_payroll/    pairing, overage — the high-care code, isolated
+  argus_store/      event store, clip store, event bus
+  argus_common/     config, clock
+infra/           compose files, dockerfiles, mediamtx config
+rig/             virtual camera rig: footage manifests, serving, fault injection
+tests/golden/    golden frames and reference outputs
+models/          ONNX artefacts referenced by hash, never committed
 ```
 
-Decided 2026-09-16: **the documents stay at the repository root.** Every
-document cross-references root paths; moving them is churn with no payoff. The
-`docs/` line above is kept only if a docs directory is ever genuinely needed.
+The documents stay at the repository root. Every document cross-references root
+paths; moving them is churn with no payoff.
 
 Rules:
 
-- **All code paths lowercase with underscores** (everything under `services/`,
-  `packages/`, `infra/`, `rig/`, `tests/`, `models/`; the root `.md` documents
-  are exempt — they predate the convention and are referenced by their current
-  names throughout). The dev Mac is case-insensitive and the production box is
-  not; `models/Face.onnx` works on one and not the other. This is enforced by a
-  CI check on Linux, not by care.
-- **`packages/payroll/` imports no vision code.** Pairing and overage are pure
-  functions over stored events. Keeping probabilistic code out of wage arithmetic
-  is deliberate — it is what makes the wage arithmetic testable.
-- **`packages/backends/` is the only place** `onnxruntime`, `torch`, TensorRT or
-  a vendor SDK may be imported. Application code asks a registry for a
-  `Detector`. Add an import-check to CI; this is the abstraction that keeps the
-  Mac and the Linux box running the same source.
-- Large model binaries do not go in git history. Mechanism decided (ADR-0026):
-  `models/registry.yaml` maps artefact → (url, sha256, licence), `models/fetch.py`
-  downloads and verifies, and every session load re-verifies the hash.
+- **All code paths lowercase with underscores.** The root `.md` files are exempt.
+  A Mac is case-insensitive and the server is not; `models/Face.onnx` works on one
+  and not the other. Enforced by a structural test on Linux, not by care.
+- **`argus_payroll` imports no vision code, no database and no wall clock.**
+  Pairing and overage are pure functions over stored events. Keeping
+  probabilistic code out of wage arithmetic is what makes the wage arithmetic
+  testable.
+- **`argus_backends` is the only place** `onnxruntime`, `torch`, TensorRT or a
+  vendor SDK may be imported. Application code asks the registry for a detector.
+  This abstraction is load-bearing twice over: it keeps platforms interchangeable
+  and it keeps a licensed model swappable (ADR-0030).
 - **Exactly one onnxruntime distribution per environment.** `onnxruntime` and
-  `onnxruntime-gpu` unpack into the same package directory and overwrite each
-  other; uninstalling one can delete the directory the other needs. Use
-  `--group cpu` or `--group staging`, never both. `argus.backends.onnx_common`
-  refuses to build a session if it finds two.
+  `onnxruntime-gpu` unpack into the same directory and overwrite each other;
+  removing one can delete the directory the other needs. Use `--group cpu` or
+  `--group staging`, never both. `argus.backends.onnx_common` refuses to build a
+  session if it finds two.
+- **Model binaries never enter git history** (ADR-0026): `models/registry.yaml`
+  maps artefact → url, sha256 and licence; `models/fetch.py` verifies.
 
----
+## 5. Commands
 
-## 5. Running things
+Same on every platform.
 
-Detail in `DEV_SETUP.md` (the Linux/CPU path is verified; macOS and the RTX
-staging legs are marked UNVERIFIED there until someone runs them).
+```bash
+uv sync --all-packages --group cpu      # dev box and CI
+uv sync --all-packages --group staging  # NVIDIA box instead — never both
+uv run pytest -q                        # rig/store/golden skip loudly without services
+uv run ruff check . && uv run ruff format --check . && uv run mypy
+uv run python models/fetch.py           # fetch + hash-verify artefacts (ADR-0026)
+docker compose -f infra/compose.dev.yaml up -d   # Postgres + mediamtx
+uv run python rig/synthetic/generate.py # deterministic footage + manifests
+uv run python rig/bin/rig_serve.py      # serve the virtual cameras
+uv run python rig/bin/rig_rigctl.py status|pause|resume|stop|start <stream>
+uv run python -m argus.ingest --config config/dev.yaml
+```
 
-**macOS (dev).** Infrastructure in Docker (Postgres, mediamtx, broker); analysis
-processes run **natively**, because Docker on macOS cannot reach the GPU. So the
-dev machine is a hybrid, permanently. That is not a workaround to be fixed later;
-it is the platform.
+Selecting tests — markers gate on external dependencies, so use them rather than
+paths:
 
-**Linux (staging/prod).** Everything in containers with the NVIDIA Container
-Toolkit. Containers must invoke the *same* entrypoints a developer runs natively
-— the container supplies environment, not behaviour. If a container needs a
-different command to work, the difference is a bug.
+```bash
+uv run pytest -m "not rig and not postgres"   # CI's fast job; no docker needed
+uv run pytest -m golden                       # needs models/fetch.py to have run
+uv run pytest tests/payroll -q                # the high-care tier
+ARGUS_PARITY_BACKEND=onnx-cuda uv run pytest -m golden   # the CUDA leg
+```
 
-**Both.** Configuration comes from the same file/env mechanism. No ad-hoc
-command-line arguments that exist only on someone's laptop.
+Escape hatches: `ARGUS_PG_HOST_PORT=5434` when 5432 is busy, with
+`ARGUS_DATABASE__DSN` / `ARGUS_TEST_DSN` pointed at the same port;
+`ARGUS_MODELS_ROOT` when artefacts are not under `./models`.
+
+Iterating on a migration means `docker compose -f infra/compose.dev.yaml down -v`,
+never editing an applied file: `apply_migrations` pins each file's sha256 and
+refuses a changed one.
+
+## 6. Environments
+
+**The platform reality.** macOS dev is arm64 with CoreML and **cannot** reach the
+GPU from Docker; Ubuntu staging is x86_64 with NVIDIA and runs everything in
+containers. So on a Mac you run a permanent hybrid: infrastructure in Docker,
+analysis natively. That is the platform, not a workaround to fix later. There is
+also a GPU-less Linux box that runs the same tree on the CPU reference backend;
+it proves logic, not CoreML and not CUDA.
 
 **The Linux box is the arbiter.** macOS proves logic; Linux proves the system. A
-change is not done because it works on the Mac. From M1 onward, "it runs on
-staging" is an exit criterion, not a follow-up task.
+change is not done because it works on the Mac.
 
----
+**Containers invoke the same entrypoint** a developer runs natively. If a
+container needs a different command to work, the difference is a bug, not a
+platform quirk. Configuration comes from the same file/env mechanism everywhere;
+no ad-hoc command-line arguments that exist only on someone's laptop.
 
-## 6. Testing expectations
+**NVIDIA box bring-up.** `sudo ubuntu-drivers install`, then the NVIDIA Container
+Toolkit, then:
 
-Full strategy in `TESTING.md`. The parts agents get wrong:
+```bash
+docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+```
 
-- **Payroll logic is tested against the case table in `DATA_MODEL.md` §4.** Every
-  row needs a test. Adding a row to that table means adding a test.
-- **Property test the invariant, not just the examples:** no sequence of doorway
-  events may produce non-zero overage in a non-`RESOLVED` state. This is the
-  fail-open guarantee, and examples alone will not hold it.
-- **Fixed clocks.** Never `now()` in payroll code paths. Time is an input.
-  Timezone is configuration, not the server's locale.
-- **Golden-frame parity** runs on Linux CI. The macOS leg is open (ADR-0022) —
-  do not silently drop it because it is inconvenient.
-- **Video tests use recorded footage through the rig over RTSP**, not frames read
-  from disk. Reading files bypasses decode, reconnection and timing — which is
-  where the bugs are.
-- **A test asserts occupancy cannot reach payroll.** If you refactor storage,
-  that test must still mean something; do not weaken it into a tautology.
+That is the real check. If `nvidia-smi` works inside a container the rest is
+ordinary work; if it does not, nothing downstream will. `config/staging.yaml`
+sets `decode: nvidia`, which is **unverified** and is the remaining M1 exit
+criterion. A first TensorRT engine build, if ADR-0021 lands that way, is cached
+and can take minutes — do not read a slow first start as a hang.
 
----
+**Timezone.** `timedatectl set-timezone Asia/Dhaka` is display only. The
+application stores UTC and reads the policy timezone from config. A server left
+on UTC must not silently shift every pay-period boundary by six hours.
 
-## 7. Working style in this repo
+**Cross-platform hygiene.** Lowercase paths; LF endings via `.gitattributes`;
+never format numbers or parse dates with the ambient locale; do not depend on
+file watchers in the runtime path (FSEvents and inotify differ, and inotify
+limits bite inside containers); log backend and model hash on every startup,
+because the first question in any "why do the numbers differ" conversation is
+which backend each side ran.
+
+## 7. Testing
+
+The governing idea: **the tests are asymmetric because the consequences are.** A
+bug in the occupancy dashboard is embarrassing. A bug in the pairing state
+machine takes money from someone who cannot easily contest it.
+
+| Tier | What | Bar |
+|---|---|---|
+| **Payroll-affecting** | Pairing, dwell, overage, export, the clock code they depend on | Every case in `ARCHITECTURE.md` §7; property tests; fixed clocks; human review of diffs |
+| **Vision** | Detection, pose, embedding, classification | Golden-frame parity within tolerance; no accuracy claims from synthetic footage |
+| **Pipeline** | Ingest, clipping, reconnection, fault behaviour | Integration tests over RTSP from the rig, including faults |
+| **Everything else** | Dashboards, tooling, review UI | Normal coverage |
+
+**Payroll.** Every row of the `ARCHITECTURE.md` §7 case table is a test; adding a
+row means adding a test in the same commit. Property tests matter more than the
+examples, because examples only prove the cases someone thought of:
+
+1. No sequence of events produces non-zero overage in a non-`RESOLVED` state.
+   *This is the fail-open guarantee. If it fails, stop and fix it before
+   anything else.*
+2. Overage is never negative and never exceeds the day's measured dwell.
+3. A `stream_gap` overlapping an interval forces zero for that day.
+4. Recomputing over the same inputs yields identical output.
+5. A late-arriving event cannot create a charge on an already-computed old day.
+6. No event ordering produces an interval with `end < start`.
+7. Output is invariant under input permutation — out-of-order arrival is the
+   real case, and this is stronger than (6).
+8. Every day that contributes a charge is fully auditable — clips on both ends.
+
+Fixed clocks throughout; the policy timezone is configuration; `Asia/Dhaka`
+boundary cases are tested explicitly. There is no DST in Bangladesh, which
+removes one bug class and tempts people into shortcuts that break the moment
+someone assumes UTC.
+
+**Structural tests** enforce architecture rather than behaviour, because these
+properties erode quietly: no backend runtime imported outside `argus_backends`;
+`argus_payroll` importing no vision, database or property-testing code; no
+wall-clock call in payroll; no path from occupancy storage to a person or a
+payroll table; lowercase paths; a committed golden reference naming its artefact
+hash; rig manifests recording licence and consent.
+
+Two traps when editing payroll: the wall-clock check is a **raw substring scan
+of the file text, comments included**, so a comment quoting the banned call fails
+the test enforcing it. And the banned-import list includes the database and
+Hypothesis, because payroll must be importable and testable with nothing running.
+
+**Video tests go through the rig over RTSP**, never by reading frames from disk.
+Reading files bypasses decode, reconnection and timing, which is where the bugs
+are. Fault injection is the valuable part and the part most likely to be skipped
+under time pressure: stream drop, stall (connection open, no frames — the WiFi
+failure mode, nastier than a clean drop), resolution change mid-stream, latency,
+and a DVR refusing a connection. Each has an expected behaviour and a test. The
+invariant behind all of them: **a gap is always recorded**, because "we saw
+nothing" and "nothing happened" must never be confused downstream.
+
+**Golden-frame parity** makes backend divergence visible and bounded, not zero.
+Tolerances start from `ARCHITECTURE.md` §5 and are widened only with a recorded
+reason in the commit message — a widened tolerance is a decision to care less and
+should read like one. Changing models means re-measuring them rather than
+carrying them over.
+
+**What we cannot test yet**, stated rather than papered over: real-world
+accuracy (any number produced before a site pilot describes the rig), throughput
+at the real camera count, violence performance, long-run stability, and the macOS
+GPU leg in CI (ADR-0022). `ARCHITECTURE.md` §9 lists what cannot be validated
+without real cameras at all. Offering those lists unprompted is much better than
+being asked for them.
+
+## 8. Working style
 
 - **Write down uncertainty.** "We have not decided" is a complete sentence here.
   A confident invention is worse than an acknowledged gap, because it is
   invisible in review.
-- **Do not smooth over gaps in documentation.** `PROVISIONAL`, `UNVERIFIED` and
-  `OPEN` are load-bearing markers. Removing one is a claim that you verified
-  something — so verify it, or leave it.
-- **No synthetic accuracy claims.** Numbers from the virtual rig describe the
-  rig. They do not describe the factory, and must never be presented as if they
-  do.
+- **Do not smooth over gaps.** `PROVISIONAL`, `UNVERIFIED` and `OPEN` are
+  load-bearing. Removing one claims you verified something — so verify it, or
+  leave it.
+- **No synthetic accuracy claims.** Numbers from the rig describe the rig.
 - **Do not design around the demo.** The demo is a milestone, not the product.
 - **Prefer deleting a feature to weakening a guarantee.** If occupancy is too
   noisy to be useful, ship less occupancy — do not make it useful by tying it to
   something it should not touch.
-- **Small diffs in payroll code.** A 600-line refactor of the pairing logic
-  cannot be reviewed by a tired human at 11pm, which is when it will be reviewed.
+- **Small diffs in payroll code.** A 600-line refactor of pairing cannot be
+  reviewed by a tired human at 11pm, which is when it will be reviewed.
 - **When blocked on a decision, propose and stop.** Do not pick a stack, a model
   or a threshold to keep moving. State the options, state a leaning, wait.
 
-## 8. Things that look helpful and are not
+## 9. Things that look helpful and are not
 
 - Adding a "best guess" for an unpaired event.
 - Adding a confidence-weighted partial deduction.
@@ -228,6 +290,6 @@ Full strategy in `TESTING.md`. The parts agents get wrong:
   with a friendlier name.
 - Logging clips or face crops to an error tracker for debugging.
 - Backfilling missing events from a schedule or an average.
-- Making the review queue auto-dismiss low-score violence candidates. The queue
-  is the product; an empty queue is not a success metric.
+- Auto-dismissing low-score violence candidates. The queue is the product; an
+  empty queue is not a success metric.
 - Renaming `unknown` to something that sorts better next to real identities.
