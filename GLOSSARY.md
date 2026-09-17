@@ -130,4 +130,6 @@ in the system.
 **Pre-roll / ring buffer** — retained recent frames so a clip can start *before*
 its trigger. Without it, violence clips begin after the interesting part.
 
-**`PROJECT_NAME`** — placeholder. The product has no name (ADR-0024).
+**Sparrow Vision** — the product name (ADR-0024). The code namespace is
+`argus.`; that is an import path, not a product name, and the two coexist
+deliberately.

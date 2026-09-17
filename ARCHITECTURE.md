@@ -1,6 +1,6 @@
 # ARCHITECTURE.md
 
-System shape for `PROJECT_NAME`. Depth lives here and in `DECISIONS.md`.
+System shape for **Sparrow Vision**. Depth lives here and in `DECISIONS.md`.
 
 Status: **no code exists**. This describes the shape we intend to build and the
 reasoning behind the parts that are settled. Anything marked **OPEN** is a real

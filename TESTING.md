@@ -1,7 +1,12 @@
 # TESTING.md
 
-Testing strategy. No code and no tests exist yet; this is the standard the first
-code is expected to meet.
+Testing strategy and the standard code is held to.
+
+**Status 2026-09-17:** the ingest, store, backend and structural suites are real
+and green on Linux/CPU (`uv run pytest`). The payroll tier described in §2 is
+being built now, ahead of the pipelines that feed it. The golden parity suite
+runs its CPU leg in CI; the CUDA and CoreML legs are selected with
+`ARGUS_PARITY_BACKEND` and remain unrun.
 
 The governing idea: **the tests are asymmetric because the consequences are.** A
 bug in the occupancy dashboard is embarrassing. A bug in the pairing state

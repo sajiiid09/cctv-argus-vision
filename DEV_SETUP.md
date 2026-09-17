@@ -41,7 +41,7 @@ hybrid; do not keep trying to fix it.
 ```bash
 # uv (installs the pinned Python 3.12 via .python-version)
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync --all-packages            # CPU onnxruntime comes with the default dev group
+uv sync --all-packages --group cpu   # the `cpu` group carries onnxruntime
 
 # infrastructure in containers (Postgres + mediamtx)
 docker compose -f infra/compose.dev.yaml up -d
@@ -92,7 +92,7 @@ Python 3.12 pinned (ADR-0017); uv with workspace members and platform groups
 (ADR-0018):
 
 ```bash
-uv sync --all-packages        # dev group installs CPU onnxruntime (CoreML EP
+uv sync --all-packages --group cpu   # the `cpu` group installs onnxruntime (CoreML EP
                               # ships in the standard macOS onnxruntime wheel)
 ```
 
@@ -143,6 +143,11 @@ to work, that difference is a bug, not a platform quirk.
 
 ```bash
 uv sync --all-packages --group staging     # onnxruntime-gpu (Linux x86_64 marker)
+# NEVER pass --group cpu as well. Both distributions unpack into the same
+# `onnxruntime` directory: the second overwrites the first, and later removing
+# either can delete the shared directory, leaving a distribution that reports
+# itself installed and will not import. Repair is
+#   uv sync --all-packages --group cpu --reinstall-package onnxruntime
 ```
 
 `config/staging.yaml` sets `decode: nvidia` (NVDEC probe with loud fallback to

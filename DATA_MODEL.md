@@ -192,17 +192,37 @@ No `person_id`, ever. A clip goes to a human; the human decides who is in it.
 ### Gate attendance
 
 ```
+gate_tap
+  reader_id
+  badge_id
+  ts_utc                 server clock at receipt — authoritative
+  ts_reader_reported     device clock — recorded for audit, never arithmetic
+  source                 zkt_live | zkt_replay | simulated
+
 gate_event
-  badge_id → person_id
+  tap_id → gate_tap
+  badge_id → person_id   resolved as-of ts_utc (badges get reissued)
   ts_utc
-  face_verified       true | false | no_face
+  face_verified       true | false | no_face | not_attempted
   verify_confidence
+  verify_threshold
   clip_ref
 ```
 
 `no_face` is distinct from `false`. Not seeing a face is a camera problem; seeing
 a different face is a buddy-punching signal. Collapsing them into a boolean
 destroys the distinction that the whole gate pipeline exists to make.
+
+`not_attempted` is distinct from both, and is the fourth value for the same
+reason the other three exist. A tap recovered from the reader's on-device log
+after an outage was never compared against anything — the ring buffer was long
+gone. So was a tap for an unknown badge, or for a person with no enrolled
+template. Recording those as `no_face` would claim we looked and saw nothing,
+when in fact we never looked.
+
+The tap is written **before** verification is attempted, and the two are separate
+rows. A crash during the verification window then loses a verification result and
+never loses the attendance evidence.
 
 ---
 
@@ -264,13 +284,28 @@ Terminal per-day: `RESOLVED`, `UNPAIRED_ENTER`, `UNPAIRED_EXIT`, `AMBIGUOUS`,
 | Low-confidence match | Above detection, below identity threshold | Treated as unknown. Never a best guess. | **0** | `low_confidence` | clip |
 | Multiple doors | Enter at door A, exit at door B | `RESOLVED` if the canteen is one space with multiple doors — pairing is per *space*, not per door | normal | none | both clips |
 | Crossing midnight / shift | Interval spans the local-day boundary | Attribute to the local day of the **enter** event; flag for review | computed | `spans_boundary` | both clips |
-| Duplicate event | Same person, same door, same direction, within (**PROVISIONAL**) 3 s | Deduplicate to one event; keep both rows, mark one `superseded` | normal | `deduplicated` | both clips |
+| Duplicate event | Same person, same door, same direction, within (**PROVISIONAL**) 3 s | Deduplicate to the earliest; keep both rows, the later one carrying `duplicate_of` → the earlier | normal | `deduplicated` | both clips |
+| Missing clip | `RESOLVED` interval whose enter or exit event has no `clip_ref` | Interval stays `RESOLVED`; the **day** is flagged | **0** for the day | `missing_clip` | the event that has no clip |
 
 Two design notes that are easy to get wrong:
 
 - **Pairing is per canteen space, not per door.** If a canteen has two doors,
   entering by one and leaving by the other is normal behaviour, and a per-door
   state machine would flag half the factory every day. Doors carry a `space_id`.
+- **Deduplication points backwards, and the earliest wins.** `doorway_event` is
+  append-only and the trigger rejects every `UPDATE`, so the earlier row cannot
+  be marked after the fact. Instead the later row carries `duplicate_of` → the
+  earlier, and pairing ignores any event that sets it. The first detection is
+  kept because it is the better estimate of when the crossing happened; the
+  duplicate is retained as evidence but never paired. An earlier draft said "mark
+  one `superseded`", which the append-only guarantee makes impossible, and the
+  guarantee is the part worth keeping. The name is `duplicate_of` rather than
+  `supersedes` because the row it points at is the one that survives, and a name
+  implying the opposite would be read wrongly exactly once, by someone tired.
+- **No clip, no deduction** (ADR-0008). The interval is still `RESOLVED` — the
+  measurement happened — but a day containing an unauditable interval contributes
+  zero. Enforcing this only at export would mean enforcing it nowhere, because
+  during shadow mode there is no export.
 - **Never infer a missing event from the other one.** The tempting move — "they
   entered at 13:00, everyone leaves by 14:00, assume an exit at 14:00" — is
   precisely the punitive default `SOUL.md` forbids. `UNPAIRED_ENTER` stays

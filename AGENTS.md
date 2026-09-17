@@ -15,7 +15,8 @@ code — update them if reality diverges.
 ### Commands (same on every platform)
 
 ```bash
-uv sync --all-packages                  # dev environment (CPU onnxruntime)
+uv sync --all-packages --group cpu      # dev environment (CPU onnxruntime)
+uv sync --all-packages --group staging  # NVIDIA box instead — NEVER both (see below)
 uv run pytest -q                        # tests; rig/store/golden skip loudly without services
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 uv run python models/fetch.py           # fetch + hash-verify model artefacts (ADR-0026)
@@ -77,7 +78,10 @@ are kept few and cheap enough to actually be used.
 7. **Adding cross-camera re-identification or floor-wide tracking** (ADR-0002).
 8. **Changing anything asserted in `SOUL.md`.**
 9. **Adding a dependency with a licence that restricts commercial deployment**
-   (AGPL in particular — ADR-0011 is open on exactly this).
+   (AGPL in particular). This gate was **exercised on 2026-09-17**: ADR-0030
+   permits AGPL model weights for the non-commercial test environment and
+   supersedes ADR-0011. The gate is not retired — it moved. Anything that would
+   ship commercially reactivates ADR-0011's reasoning.
 
 A pattern that looks like an exception but is not: "just for the demo". Demo
 pressure is the most common reason these gates get skipped, and a demo that
@@ -140,9 +144,14 @@ Rules:
   a vendor SDK may be imported. Application code asks a registry for a
   `Detector`. Add an import-check to CI; this is the abstraction that keeps the
   Mac and the Linux box running the same source.
-- Large model binaries do not go in git history. Mechanism (LFS, a pointer file
-  plus a fetch script, an artefact store) is undecided — pick one before the
-  first model lands, not after.
+- Large model binaries do not go in git history. Mechanism decided (ADR-0026):
+  `models/registry.yaml` maps artefact → (url, sha256, licence), `models/fetch.py`
+  downloads and verifies, and every session load re-verifies the hash.
+- **Exactly one onnxruntime distribution per environment.** `onnxruntime` and
+  `onnxruntime-gpu` unpack into the same package directory and overwrite each
+  other; uninstalling one can delete the directory the other needs. Use
+  `--group cpu` or `--group staging`, never both. `argus.backends.onnx_common`
+  refuses to build a session if it finds two.
 
 ---
 
