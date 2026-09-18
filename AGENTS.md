@@ -260,9 +260,14 @@ carrying them over.
 **What we cannot test yet**, stated rather than papered over: real-world
 accuracy (any number produced before a site pilot describes the rig), throughput
 at the real camera count, violence performance, long-run stability, and the macOS
-GPU leg in CI (ADR-0022). `ARCHITECTURE.md` §9 lists what cannot be validated
-without real cameras at all. Offering those lists unprompted is much better than
-being asked for them.
+GPU leg in CI (ADR-0022). Two more, added as the code arrived: the **badge
+reader client** has never exchanged a byte with a device — its tests parse
+fixtures hand-constructed from the protocol description, and the one test that
+needs hardware carries the `reader` marker that nothing selects — and **no face
+threshold exists**, so identity is off and every crossing is `unknown`, which is
+the fail-open outcome rather than a missing feature. `ARCHITECTURE.md` §9 lists
+what cannot be validated without real cameras at all. Offering those lists
+unprompted is much better than being asked for them.
 
 ## 8. Working style
 

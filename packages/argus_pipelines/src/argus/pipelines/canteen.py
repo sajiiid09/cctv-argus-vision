@@ -352,5 +352,3 @@ def _box_at(track: Track, ts: datetime) -> Box | None:
         return None
     nearest = min(track.samples, key=lambda s: abs((s.ts_server - ts).total_seconds()))
     return nearest.box
-
-

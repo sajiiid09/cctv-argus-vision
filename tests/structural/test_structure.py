@@ -198,3 +198,39 @@ def test_the_pipelines_layer_is_no_longer_a_skeleton() -> None:
     """
     modules = {path.name for path in PIPELINES_ROOT.glob("*.py")}
     assert {"canteen.py", "doorway.py", "tracking.py", "faces.py"} <= modules
+
+
+def test_the_reader_client_lives_in_exactly_one_module() -> None:
+    """One module speaks to the badge reader, so "what talks to the hardware?"
+    has one answer -- and a licence question has one place to be asked."""
+    tokens = ("4370", "CMD_ATTLOG_RRQ", "TCP_MAGIC")
+    holders: set[str] = set()
+    for path in _py_files():
+        relative = str(path.relative_to(ROOT))
+        # config.py carries the default port, which is a setting rather than
+        # protocol knowledge -- it says which door to knock on, not how.
+        if relative.startswith("tests/") or "common/config.py" in relative:
+            continue
+        text = path.read_text()
+        if any(token in text for token in tokens):
+            holders.add(relative)
+    assert holders == {"packages/argus_pipelines/src/argus/pipelines/gate/zkt.py"}, (
+        f"the reader protocol leaked into {sorted(holders)}"
+    )
+
+
+def test_the_two_face_thresholds_are_never_read_by_the_same_module() -> None:
+    """ADR-0010: 1:N identification and 1:1 verification are different problems.
+
+    Sharing a constant is how a verification threshold silently becomes an
+    identification threshold, so no module may reach for both.
+    """
+    both: list[str] = []
+    for path in _py_files():
+        relative = str(path.relative_to(ROOT))
+        if relative.startswith("tests/") or "common/config.py" in relative:
+            continue
+        text = path.read_text()
+        if "canteen_match_threshold" in text and "gate_verify_threshold" in text:
+            both.append(relative)
+    assert not both, f"{both} reads both face thresholds"

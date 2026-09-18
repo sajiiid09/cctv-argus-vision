@@ -156,6 +156,40 @@ class IngestConfig:
 
 
 @dataclass(slots=True)
+class GateConfig:
+    """The badge reader, and how long we wait for a face after a tap.
+
+    ``tap_source`` defaults to ``simulated`` because no reader has been on a LAN
+    we can reach: the simulated source keeps the whole gate path real and says
+    in every row that the tap was simulated. Switching to ``zkt`` is a config
+    change and a day of hardware work, in that order.
+    """
+
+    tap_source: str = "simulated"
+    reader_id: str = "gate_reader_01"
+    camera_id: str = "gate_door"
+    host: str | None = None
+    port: int = 4370
+    password: str | None = None
+    simulated_taps_path: str | None = None
+    poll_interval_s: float = 1.0
+    dedupe_window_s: float = 5.0
+    reader_gap_timeout_s: float = 30.0
+    verify_window_s: float = 3.0
+    replay_lookback_hours: int = 24
+
+    def __post_init__(self) -> None:
+        if self.tap_source not in ("simulated", "zkt"):
+            raise ConfigError(
+                f"gate.tap_source must be 'simulated' or 'zkt', got {self.tap_source!r}"
+            )
+        if self.tap_source == "zkt" and not self.host:
+            raise ConfigError("gate.tap_source is 'zkt' but gate.host is unset")
+        if self.dedupe_window_s <= 0 or self.verify_window_s <= 0:
+            raise ConfigError("gate dedupe and verify windows must be positive")
+
+
+@dataclass(slots=True)
 class PayrollConfig:
     """Pairing policy inputs, and one field that cannot be set.
 
@@ -328,6 +362,7 @@ class AppConfig:
     pipelines: PipelinesConfig = field(default_factory=PipelinesConfig)
     payroll: PayrollConfig = field(default_factory=PayrollConfig)
     face: FaceConfig = field(default_factory=FaceConfig)
+    gate: GateConfig = field(default_factory=GateConfig)
     cameras: list[CameraConfig] = field(default_factory=list)
 
 
@@ -339,6 +374,7 @@ _NESTED: dict[type, dict[str, type[Any]]] = {
         "pipelines": PipelinesConfig,
         "payroll": PayrollConfig,
         "face": FaceConfig,
+        "gate": GateConfig,
     },
     IngestConfig: {
         "reconnect": ReconnectConfig,
@@ -409,6 +445,7 @@ def load_config(path: str | Path) -> AppConfig:
             pipelines=pipelines,
             payroll=PayrollConfig(**raw.get("payroll", {})),
             face=FaceConfig(**raw.get("face", {})),
+            gate=GateConfig(**raw.get("gate", {})),
             cameras=cameras,
         )
     except TypeError as e:
