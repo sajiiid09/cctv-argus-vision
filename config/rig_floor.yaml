@@ -1,0 +1,62 @@
+# Rig floor config: occupancy and the violence trigger over the virtual floor
+# camera, with the mock backends -- so it needs no model artefacts.
+#
+# The rig's floor scene is a 4x8 grid of coloured rectangles toggling on a fixed
+# schedule. It exercises the geometry, the smoothing and the writes. It says
+# nothing about whether a real camera can tell an occupied seat from an empty
+# one, and the violence trigger's false-positive rate on a real floor is
+# unmeasurable before a site pilot (ARCHITECTURE.md §9.2).
+timezone: Asia/Dhaka
+
+database:
+  dsn: postgresql://argus:argus@localhost:5432/argus
+
+clips:
+  dir: var/clips
+
+pipelines:
+  enabled: true
+  detector_backend: mock
+  pose_backend: mock
+  occupancy:
+    enabled: true
+    sample_interval_s: 5.0
+    smoothing_samples: 3
+    min_overlap: 0.2
+    # The rig draws seats at 40 + col*74, 40 + row*80, 50x40 each, on a
+    # 640x360 frame. Four of the front row, as fractions.
+    seats:
+      - seat_id: a1
+        line_id: line-a
+        region: [0.0625, 0.139, 0.141, 0.250]
+      - seat_id: a2
+        line_id: line-a
+        region: [0.178, 0.139, 0.256, 0.250]
+      - seat_id: a3
+        line_id: line-a
+        region: [0.294, 0.139, 0.372, 0.250]
+      - seat_id: a4
+        line_id: line-a
+        region: [0.409, 0.139, 0.488, 0.250]
+  violence:
+    enabled: true
+    # PROVISIONAL and rig-shaped: the rig has no fights in it, so this exists to
+    # prove the path rather than to be a good threshold.
+    trigger_threshold: 0.75
+    cooldown_s: 30.0
+
+face:
+  enabled: false
+
+ingest:
+  stall_timeout_s: 5
+  decode: software
+  ring_buffer_seconds: 15
+  analysis_fps: 4
+
+cameras:
+  - camera_id: floor_view
+    role: floor
+    source_uri: rtsp://localhost:8554/floor_view
+    is_virtual: true
+    analysis_fps: 4

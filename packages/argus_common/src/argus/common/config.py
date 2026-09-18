@@ -366,6 +366,103 @@ class CanteenConfig:
 
 
 @dataclass(slots=True)
+class SeatConfig:
+    """One seat, as a region of the frame in fractions.
+
+    Seat regions are configuration, not code: PLAN.md M5 requires that adding a
+    seat needs no code change, because a factory floor is re-laid out more often
+    than software is released.
+    """
+
+    seat_id: str
+    region: tuple[float, float, float, float]  # x1, y1, x2, y2 as fractions
+    line_id: str | None = None
+
+    def __post_init__(self) -> None:
+        values = [float(v) for v in self.region]
+        if len(values) != 4:
+            raise ConfigError(f"seat {self.seat_id}: region must be [x1, y1, x2, y2]")
+        if any(v < 0.0 or v > 1.0 for v in values):
+            raise ConfigError(
+                f"seat {self.seat_id}: region values are fractions of the frame, got {values}"
+            )
+        if values[0] >= values[2] or values[1] >= values[3]:
+            raise ConfigError(f"seat {self.seat_id}: region must have positive area")
+        self.region = (values[0], values[1], values[2], values[3])
+
+
+@dataclass(slots=True)
+class OccupancyConfig:
+    """Anonymous per-seat occupancy (M5, ADR-0019).
+
+    Per-seat is stored and the aggregate is shown; the per-seat view sits behind
+    the admin tier. Nothing here carries a person, and a test asserts no
+    occupancy code path can reach a payroll table -- seats are assigned, so
+    per-seat data is closer to identified data than its schema suggests, and
+    that is exactly why the boundary is enforced rather than remembered.
+    """
+
+    enabled: bool = False
+    camera_id: str | None = None
+    # Deliberately slow. Occupancy is a management indicator, not an event
+    # stream, and a fast cadence would invite using it as one.
+    sample_interval_s: float = 30.0
+    # Majority vote over this many samples before a seat changes state, so a
+    # person leaning out of frame for one sample is not "absent".
+    smoothing_samples: int = 3
+    min_overlap: float = 0.25
+    seats: list[SeatConfig] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.sample_interval_s <= 0:
+            raise ConfigError("occupancy.sample_interval_s must be positive")
+        if self.smoothing_samples < 1:
+            raise ConfigError("occupancy.smoothing_samples must be at least 1")
+        if not 0 < self.min_overlap <= 1:
+            raise ConfigError("occupancy.min_overlap must be in (0, 1]")
+        seat_ids = [seat.seat_id for seat in self.seats]
+        duplicates = sorted({s for s in seat_ids if seat_ids.count(s) > 1})
+        if duplicates:
+            raise ConfigError(f"occupancy seats repeated: {duplicates}")
+
+
+@dataclass(slots=True)
+class ViolenceConfig:
+    """The cheap, recall-biased trigger (M6, ADR-0012).
+
+    A trigger and a human, never a classifier. The weights are PROVISIONAL and
+    describe the rig; the honest false-positive rate on a real factory floor is
+    unmeasurable before a site pilot and is the dominant error source
+    (ARCHITECTURE.md §9.2).
+    """
+
+    enabled: bool = False
+    camera_id: str | None = None
+    trigger_threshold: float = 0.6
+    proximity_weight: float = 0.4
+    extension_weight: float = 0.3
+    energy_weight: float = 0.3
+    # Metres-ish, in shoulder widths: two people closer than this are "close".
+    proximity_shoulders: float = 1.5
+    clip_pre_s: float = 6.0
+    clip_post_s: float = 4.0
+    # One candidate per cooldown, so a scuffle is one queue item and not forty.
+    cooldown_s: float = 30.0
+
+    def __post_init__(self) -> None:
+        if not 0 < self.trigger_threshold <= 1:
+            raise ConfigError("violence.trigger_threshold must be in (0, 1]")
+        total = self.proximity_weight + self.extension_weight + self.energy_weight
+        if abs(total - 1.0) > 1e-6:
+            raise ConfigError(
+                f"violence feature weights must sum to 1.0, got {total:.3f}: a weighted score "
+                "whose weights do not sum to one is not comparable to a threshold"
+            )
+        if self.cooldown_s <= 0:
+            raise ConfigError("violence.cooldown_s must be positive")
+
+
+@dataclass(slots=True)
 class PipelinesConfig:
     """Analysis inside the ingest process (ADR-0033). Off by default.
 
@@ -380,6 +477,8 @@ class PipelinesConfig:
     pose_backend: str | None = None
     queue_depth: int = 2
     canteen: CanteenConfig = field(default_factory=CanteenConfig)
+    occupancy: OccupancyConfig = field(default_factory=OccupancyConfig)
+    violence: ViolenceConfig = field(default_factory=ViolenceConfig)
 
     def __post_init__(self) -> None:
         if self.queue_depth < 1:
@@ -416,6 +515,8 @@ _NESTED: dict[type, dict[str, type[Any]]] = {
     },
     PipelinesConfig: {
         "canteen": CanteenConfig,
+        "occupancy": OccupancyConfig,
+        "violence": ViolenceConfig,
     },
 }
 
@@ -471,7 +572,13 @@ def load_config(path: str | Path) -> AppConfig:
         ingest = IngestConfig(reconnect=reconnect, **ingest_raw)
         pipelines_raw = dict(raw.get("pipelines", {}))
         canteen = CanteenConfig(**pipelines_raw.pop("canteen", {}))
-        pipelines = PipelinesConfig(canteen=canteen, **pipelines_raw)
+        occupancy_raw = dict(pipelines_raw.pop("occupancy", {}))
+        seats = [SeatConfig(**seat) for seat in occupancy_raw.pop("seats", [])]
+        occupancy = OccupancyConfig(seats=seats, **occupancy_raw)
+        violence = ViolenceConfig(**pipelines_raw.pop("violence", {}))
+        pipelines = PipelinesConfig(
+            canteen=canteen, occupancy=occupancy, violence=violence, **pipelines_raw
+        )
         config = AppConfig(
             timezone=raw.get("timezone", "Asia/Dhaka"),
             database=DatabaseConfig(**raw.get("database", {})),

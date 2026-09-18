@@ -15,7 +15,12 @@ from pathlib import Path
 from argus.common.clock import SystemClock
 from argus.common.config import AppConfig, load_config
 from argus.ingest.clip import ClipStore
-from argus.ingest.pipelines import build_canteen_pipelines, supervise
+from argus.ingest.floor import supervise_floor
+from argus.ingest.pipelines import (
+    build_canteen_pipelines,
+    build_floor_pipelines,
+    supervise,
+)
 from argus.ingest.streams import RTSPSource
 from argus.pipelines.metrics import InMemoryMetrics
 from argus.store.db import Database, apply_migrations, config_hash
@@ -63,6 +68,14 @@ async def run(config: AppConfig, config_path: str) -> None:
             asyncio.create_task(supervise(p), name=f"pipeline-{p.camera.camera_id}")
             for p in pipelines
         ]
+        floors, floor_runtimes = build_floor_pipelines(
+            config, sources, store, clips, clock, metrics
+        )
+        runtimes += floor_runtimes
+        tasks += [
+            asyncio.create_task(supervise_floor(f), name=f"floor-{f.camera.camera_id}")
+            for f in floors
+        ]
 
         async def status_logger() -> None:
             while True:
@@ -86,6 +99,8 @@ async def run(config: AppConfig, config_path: str) -> None:
             s.stop()
         for p in pipelines:
             p.stop()
+        for f in floors:
+            f.stop()
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

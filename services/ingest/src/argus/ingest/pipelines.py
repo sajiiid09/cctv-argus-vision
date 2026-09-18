@@ -19,13 +19,15 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from typing import Any
 from uuid import UUID
 
 from argus.backends.interfaces import Detector
-from argus.backends.registry import get_detector
+from argus.backends.registry import get_detector, get_pose_estimator
 from argus.common.clock import Clock
 from argus.common.config import AppConfig, CameraConfig
 from argus.ingest.clip import ClipStore
+from argus.ingest.floor import FloorRunner
 from argus.ingest.streams import RTSPSource
 from argus.pipelines.aim import AimMonitor
 from argus.pipelines.base import GapKeeper, measuring
@@ -133,3 +135,74 @@ async def supervise(pipeline: CanteenPipeline, *, backoff_s: float = 2.0) -> Non
         except Exception:
             log.exception("%s crashed; restarting in %.1fs", pipeline.name, backoff_s)
             await asyncio.sleep(backoff_s)
+
+
+def build_floor_pipelines(
+    config: AppConfig,
+    sources: list[RTSPSource],
+    store: Store,
+    clips: ClipStore,
+    clock: Clock,
+    metrics: InMemoryMetrics,
+) -> tuple[list[FloorRunner], list[SessionRuntime[Detector]]]:
+    """Occupancy and the violence trigger, on the floor cameras.
+
+    Both are off unless configured, and occupancy additionally needs seats: a
+    floor camera with no seat regions has nothing to sample, and inventing them
+    from the frame would be a guess about where people sit.
+    """
+    occupancy_cfg = config.pipelines.occupancy
+    violence_cfg = config.pipelines.violence
+    if not config.pipelines.enabled or not (occupancy_cfg.enabled or violence_cfg.enabled):
+        return [], []
+
+    runtimes: list[SessionRuntime[Detector]] = []
+    runners: list[FloorRunner] = []
+    for source in sources:
+        camera = source.camera
+        if camera.role != "floor":
+            continue
+        detector: SessionRuntime[Detector] | None = None
+        pose: SessionRuntime[Any] | None = None
+        if occupancy_cfg.enabled and occupancy_cfg.seats:
+            detector = SessionRuntime(
+                f"detector-{camera.camera_id}",
+                lambda: get_detector(config.pipelines.detector_backend),
+                max_queue=config.pipelines.queue_depth,
+            )
+            runtimes.append(detector)
+        elif occupancy_cfg.enabled:
+            log.warning(
+                "%s: occupancy is enabled but no seats are configured, so nothing is "
+                "sampled. Seat regions are configuration (PLAN.md M5)",
+                camera.camera_id,
+            )
+        if violence_cfg.enabled:
+            pose = SessionRuntime(
+                f"pose-{camera.camera_id}",
+                lambda: get_pose_estimator(config.pipelines.pose_backend),
+                max_queue=config.pipelines.queue_depth,
+            )
+            runtimes.append(pose)
+        runners.append(
+            FloorRunner(
+                camera,
+                source,
+                store.db,
+                detector=detector,
+                pose=pose,
+                occupancy_cfg=occupancy_cfg,
+                violence_cfg=violence_cfg,
+                clips=clips,
+                clock=clock,
+                metrics=metrics,
+            )
+        )
+    if runners:
+        log.info(
+            "watching %d floor camera(s): occupancy=%s violence-trigger=%s",
+            len(runners),
+            occupancy_cfg.enabled,
+            violence_cfg.enabled,
+        )
+    return runners, runtimes
