@@ -14,6 +14,7 @@ conflicts = [[
 members = [
     "argus-backends",
     "argus-common",
+    "argus-enrol",
     "argus-ingest",
     "argus-pairing",
     "argus-payroll",
@@ -62,6 +63,27 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "pyyaml", specifier = ">=6.0" }]
+
+[[package]]
+name = "argus-enrol"
+version = "0.1.0"
+source = { editable = "services/enrol" }
+dependencies = [
+    { name = "argus-backends" },
+    { name = "argus-common" },
+    { name = "argus-store" },
+    { name = "av" },
+    { name = "numpy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-backends", editable = "packages/argus_backends" },
+    { name = "argus-common", editable = "packages/argus_common" },
+    { name = "argus-store", editable = "packages/argus_store" },
+    { name = "av", specifier = ">=13" },
+    { name = "numpy", specifier = ">=1.26" },
+]
 
 [[package]]
 name = "argus-ingest"

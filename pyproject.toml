@@ -81,6 +81,7 @@ mypy_path = [
     "packages/argus_payroll/src",
     "services/ingest/src",
     "services/pairing/src",
+    "services/enrol/src",
 ]
 disallow_untyped_defs = true
 no_implicit_optional = true
