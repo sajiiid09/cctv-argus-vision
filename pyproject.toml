@@ -1,3 +1,14 @@
+# The workspace root names itself only so the conflict declaration below can
+# attribute the `cpu`/`staging` groups to something: uv >= 0.12 requires a
+# `package` field in every conflicting entry, and a nameless virtual root has
+# nothing to name. `package = false` keeps it unbuildable and uninstallable --
+# it is a workspace root, not a distribution.
+[project]
+name = "argus-vision"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
 [tool.uv.workspace]
 members = ["packages/*", "services/*"]
 
@@ -36,8 +47,12 @@ staging = [
 # execution provider is mysteriously unavailable" rather than as a dependency
 # conflict. Declaring them conflicting makes uv refuse both at once, loudly.
 [tool.uv]
+package = false
 conflicts = [
-    [{ group = "cpu" }, { group = "staging" }],
+    [
+        { package = "argus-vision", group = "cpu" },
+        { package = "argus-vision", group = "staging" },
+    ],
 ]
 
 [tool.ruff]
