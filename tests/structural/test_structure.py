@@ -103,3 +103,45 @@ def test_rig_manifests_committed_and_licenced() -> None:
         text = m.read_text()
         assert "licence:" in text, f"{m.name} must record its licence"
         assert "consent:" in text, f"{m.name} must record consent status"
+
+
+def test_non_commercial_artefacts_are_named_in_decisions() -> None:
+    """ADR-0030 promises this check; without it the promise is decoration.
+
+    Weights marked `commercial_use: false` are permitted only for this personal
+    test environment. Requiring each one to be named in DECISIONS.md is what
+    stops an artefact arriving quietly and the demo posture becoming the pilot
+    posture.
+    """
+    import yaml
+
+    registry = yaml.safe_load((ROOT / "models" / "registry.yaml").read_text())
+    decisions = (ROOT / "DECISIONS.md").read_text()
+    restricted = [
+        name
+        for name, spec in (registry or {}).get("artifacts", {}).items()
+        if spec.get("commercial_use") is False
+    ]
+    assert restricted, "expected at least one non-commercial artefact (ADR-0030)"
+    missing = [name for name in restricted if name not in decisions]
+    assert not missing, f"non-commercial artefacts not named in DECISIONS.md: {missing}"
+
+
+def test_every_artefact_records_a_licence_and_a_hash_or_says_it_is_unresolved() -> None:
+    """A registry entry with neither a hash nor an honest `unresolved` is a trap.
+
+    It would look fetchable, download whatever is at the URL today, and the
+    parity suite would compare two different model files without noticing
+    (ADR-0026).
+    """
+    import yaml
+
+    registry = yaml.safe_load((ROOT / "models" / "registry.yaml").read_text())
+    for name, spec in (registry or {}).get("artifacts", {}).items():
+        assert spec.get("licence"), f"{name} must record a licence"
+        assert spec.get("file"), f"{name} must name a file"
+        resolved = bool(spec.get("sha256")) and bool(spec.get("url"))
+        unresolved = spec.get("status") == "unresolved"
+        assert resolved != unresolved, (
+            f"{name}: either pin url+sha256 or mark status: unresolved, not both or neither"
+        )

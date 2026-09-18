@@ -738,6 +738,17 @@ weights, scoped to non-commercial use. (c) Buy commercial licences now.
 `antelopev2` (weights research-only). Both are recorded in
 `models/registry.yaml` with their real licences.
 
+**Artefacts as registered** (a clarification recorded 2026-09-18, not a change
+of decision): `models/registry.yaml` names them `yolo26m`, `yolo26m_pose`,
+`scrfd_10g_bnkps` and `glintr100`. The last two are the detector and recogniser
+that make up `antelopev2`, registered separately because each is loaded as its
+own hash-verified ONNX file. All four carry `commercial_use: false`. None of
+them is resolved to a pinned URL and sha256 yet, so each also carries
+`status: unresolved` and `models/fetch.py` refuses to fetch it; the wrappers in
+`argus_backends` are written and tested against synthetic session outputs, and
+the first run against real weights must re-measure parity tolerances rather than
+inherit `ssd_mobilenet_v1`'s.
+
 **Reasoning.** The accuracy gap is large and the constraint that motivated
 ADR-0011 does not currently apply. Two things keep this from becoming a trap.
 First, the artefacts are consumed as **pre-exported ONNX** published by the

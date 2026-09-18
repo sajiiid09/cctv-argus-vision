@@ -32,3 +32,21 @@ class Detection:
     score: float
     label: str
     label_id: int
+
+
+# The five landmarks, in this order, are a load-bearing contract between the
+# face detector and face_align: a permuted order produces aligned crops that
+# look plausible and embeddings that are garbage, with no error anywhere.
+LANDMARK_ORDER = ("left_eye", "right_eye", "nose", "left_mouth", "right_mouth")
+
+
+@dataclass(frozen=True, slots=True)
+class FaceDetection:
+    box: Box
+    score: float
+    # (5, 2) float32 in SOURCE pixel coordinates, ordered as LANDMARK_ORDER.
+    landmarks: np.ndarray
+
+    def __post_init__(self) -> None:
+        if self.landmarks.shape != (5, 2):
+            raise ValueError(f"landmarks must be (5, 2), got {self.landmarks.shape}")

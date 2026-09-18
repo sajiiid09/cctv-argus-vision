@@ -65,9 +65,26 @@ def registry_entry(name: str, root: Path | None = None) -> dict[str, Any]:
     return entry
 
 
+def is_unresolved(entry: dict[str, Any]) -> bool:
+    """True when registry.yaml has no pinned url+sha256 for this artefact yet.
+
+    An unresolved entry is a declared intention, not a model. It exists so the
+    wrapper, the licence and the note can be reviewed before anyone downloads
+    anything, and so this failure is one clear message rather than a hash
+    mismatch against a file nobody pinned.
+    """
+    return entry.get("status") == "unresolved" or not entry.get("sha256")
+
+
 def artefact_path(name: str, root: Path | None = None) -> Path:
     root = root or models_root()
     entry = registry_entry(name, root)
+    if is_unresolved(entry):
+        raise ModelArtefactError(
+            f"artefact {name} is unresolved: {root / 'registry.yaml'} pins no url or "
+            "sha256 for it, so there is nothing to verify and nothing to run. "
+            "Licence and intent are recorded there and in DECISIONS.md (ADR-0030)."
+        )
     path = root / entry["file"]
     if not path.exists():
         raise ModelArtefactError(
@@ -116,9 +133,10 @@ def check_ort_environment() -> tuple[str, ...]:
     ``onnxruntime`` that reports itself installed and refuses to import. Both
     cost an afternoon if they are met without warning.
 
-    Declaring the groups conflicting in ``pyproject.toml`` does not help: uv
-    ignores conflict declarations on a workspace root that is not itself a
-    package. So the check lives here, where it also catches a pip install.
+    ``[tool.uv].conflicts`` does refuse both groups at once, now that the
+    workspace root names itself, but it only governs uv: this check also
+    catches a pip install, a stale venv, and a wheel someone dropped in by
+    hand.
     """
     installed = tuple(
         sorted(

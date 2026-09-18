@@ -11,3 +11,68 @@ artifacts:
     note: >-
       Bring-up detector for the parity suite (ADR-0011). Chosen for licence and
       availability, not accuracy; family revisited with measured data at M8/M9.
+
+  # --- ADR-0030 artefacts: non-commercial weights, and none of them resolved --
+  #
+  # `status: unresolved` means exactly what it says: no upstream-published ONNX
+  # export has been pinned to a URL and a sha256 yet. fetch.py refuses to
+  # download one, and every backend that needs one raises at construction
+  # naming this file. The wrappers exist and are tested against synthetic
+  # session outputs; nothing here has been run against real weights, so no
+  # parity tolerance and no identity threshold derived from them exists either.
+  #
+  # commercial_use: false is load-bearing. ADR-0030 permits these weights only
+  # for this personal, non-commercial test environment; a structural test
+  # requires each of them to be named in DECISIONS.md, which is what stops the
+  # demo posture quietly becoming the pilot posture.
+
+  yolo26m:
+    file: artifacts/yolo26m.onnx
+    sha256: null
+    url: null
+    status: unresolved
+    licence: AGPL-3.0
+    commercial_use: false
+    source: Ultralytics YOLO26 (weights AGPL-3.0)
+    note: >-
+      Person detection for the canteen and gate doorways (ADR-0010, ADR-0030).
+      Consumed as a pre-exported ONNX file so that no AGPL code enters the
+      runtime -- only the weights carry the licence.
+
+  yolo26m_pose:
+    file: artifacts/yolo26m_pose.onnx
+    sha256: null
+    url: null
+    status: unresolved
+    licence: AGPL-3.0
+    commercial_use: false
+    source: Ultralytics YOLO26-pose (weights AGPL-3.0)
+    note: >-
+      Keypoints for the violence trigger only (ADR-0012: a cheap, recall-biased
+      trigger that sends a clip to a human, never a verdict).
+
+  scrfd_10g_bnkps:
+    file: artifacts/scrfd_10g_bnkps.onnx
+    sha256: null
+    url: null
+    status: unresolved
+    licence: research-only
+    commercial_use: false
+    source: InsightFace antelopev2 (detection half)
+    note: >-
+      Face detection with five landmarks. The landmarks are not optional: a
+      no-landmark export cannot be aligned, and an unaligned crop is not
+      comparable to an enrolled template.
+
+  glintr100:
+    file: artifacts/glintr100.onnx
+    sha256: null
+    url: null
+    status: unresolved
+    licence: research-only
+    commercial_use: false
+    source: InsightFace antelopev2 (recognition half)
+    note: >-
+      Face embedding, 112x112 aligned input. Embeddings are not comparable
+      across models or versions, so every face_template records this artefact's
+      model_ref and a mismatch refuses to start (ARCHITECTURE.md §7.2).
