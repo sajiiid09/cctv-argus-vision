@@ -269,6 +269,13 @@ of the file text, comments included**, so a comment quoting the banned call fail
 the test enforcing it. And the banned-import list includes the database and
 Hypothesis, because payroll must be importable and testable with nothing running.
 
+**Never run two pytest sessions against the rig at once.** They share mediamtx
+and the publisher pidfiles, so the second kills the first's streams and both
+fail in ways that look like real bugs: 404s from mediamtx, stalls that never
+stall, clips that will not extract. If the rig tier starts failing for no
+reason, check for a leftover `ffmpeg` and a stale pidfile before reading the
+code.
+
 **The rig's publishers are tracked by pidfile**, and "is this pid alive?" is
 subtler than it looks: a killed-but-unreaped ffmpeg is a zombie and answers
 `kill(pid, 0)` happily. Believing one is alive is not cosmetic -- fault
