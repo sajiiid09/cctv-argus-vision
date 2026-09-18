@@ -14,7 +14,10 @@ from pathlib import Path
 
 from argus.common.clock import SystemClock
 from argus.common.config import AppConfig, load_config
+from argus.ingest.clip import ClipStore
+from argus.ingest.pipelines import build_canteen_pipelines, supervise
 from argus.ingest.streams import RTSPSource
+from argus.pipelines.metrics import InMemoryMetrics
 from argus.store.db import Database, apply_migrations, config_hash
 from argus.store.store import Store
 
@@ -48,10 +51,27 @@ async def run(config: AppConfig, config_path: str) -> None:
         ]
         tasks = [asyncio.create_task(s.run(), name=f"source-{s.camera.camera_id}") for s in sources]
 
+        # Analysis runs in this process, as one more subscriber on each source's
+        # already-bounded frame queue (ADR-0033). Off unless configured, so a box
+        # with no artefacts behaves exactly as before.
+        metrics = InMemoryMetrics()
+        clips = ClipStore(config.clips.dir)
+        pipelines, runtimes = build_canteen_pipelines(
+            config, sources, store, clips, clock, run_id, metrics
+        )
+        tasks += [
+            asyncio.create_task(supervise(p), name=f"pipeline-{p.camera.camera_id}")
+            for p in pipelines
+        ]
+
         async def status_logger() -> None:
             while True:
                 for s in sources:
                     log.info("status %s", s.status.as_line())
+                for runtime in runtimes:
+                    log.info("status %s", runtime.stats().as_line())
+                for line in metrics.as_lines():
+                    log.info("metric %s", line)
                 await asyncio.sleep(30)
 
         tasks.append(asyncio.create_task(status_logger(), name="status"))
@@ -64,12 +84,18 @@ async def run(config: AppConfig, config_path: str) -> None:
         await asyncio.wait([*tasks, stop_task], return_when=asyncio.FIRST_COMPLETED)
         for s in sources:
             s.stop()
+        for p in pipelines:
+            p.stop()
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        for runtime in runtimes:
+            await runtime.aclose()
         log.info("ingest stopped; final status:")
         for s in sources:
             log.info("status %s", s.status.as_line())
+        for line in metrics.as_lines():
+            log.info("metric %s", line)
     finally:
         await db.close()
 

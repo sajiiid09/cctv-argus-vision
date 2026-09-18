@@ -8,6 +8,14 @@ database:
 clips:
   dir: var/clips
 
+# Analysis in the ingest process (ADR-0033). Off here: turning it on needs
+# model artefacts, and `config/rig_canteen.yaml` is the one that does.
+pipelines:
+  enabled: false
+
+face:
+  enabled: false   # no enrolment and no measured threshold yet (ADR-0010)
+
 ingest:
   stall_timeout_s: 5
   decode: software
@@ -25,6 +33,15 @@ cameras:
     direction_hint: east
     source_uri: rtsp://localhost:8554/canteen_door_01
     is_virtual: true
+    # Fractions of the frame, never pixels (ADR-0031: the analysis substream is
+    # a different size). Top-to-bottom line down the middle, matching the rig's
+    # door_line_x: 320 on a 640-wide frame; inside is east of it, so a person
+    # walking east is entering.
+    door_line: [0.5, 0.0, 0.5, 1.0]
+    inside_sign: 1
+    # 8 fps leaves too little margin for two samples either side of the band at
+    # rig walking speed (argus.pipelines.doorway.sampling_is_adequate).
+    analysis_fps: 15
 
   - camera_id: canteen_door_02
     role: canteen_door
@@ -33,6 +50,12 @@ cameras:
     direction_hint: west
     source_uri: rtsp://localhost:8554/canteen_door_02
     is_virtual: true
+    door_line: [0.5, 0.0, 0.5, 1.0]
+    # This door faces the other way: inside is west of the line. One camera per
+    # door, one sign per camera -- pairing is per space, so an enter here pairs
+    # with an exit at door c1.
+    inside_sign: -1
+    analysis_fps: 15
 
   - camera_id: gate_door
     role: gate

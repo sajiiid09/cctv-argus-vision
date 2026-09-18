@@ -15,6 +15,7 @@ members = [
     "argus-backends",
     "argus-common",
     "argus-ingest",
+    "argus-pairing",
     "argus-payroll",
     "argus-pipelines",
     "argus-store",
@@ -68,6 +69,7 @@ version = "0.1.0"
 source = { editable = "services/ingest" }
 dependencies = [
     { name = "argus-common" },
+    { name = "argus-pipelines" },
     { name = "argus-store" },
     { name = "av" },
     { name = "numpy" },
@@ -76,9 +78,27 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "argus-common", editable = "packages/argus_common" },
+    { name = "argus-pipelines", editable = "packages/argus_pipelines" },
     { name = "argus-store", editable = "packages/argus_store" },
     { name = "av", specifier = ">=13" },
     { name = "numpy", specifier = ">=1.26" },
+]
+
+[[package]]
+name = "argus-pairing"
+version = "0.1.0"
+source = { editable = "services/pairing" }
+dependencies = [
+    { name = "argus-common" },
+    { name = "argus-payroll" },
+    { name = "argus-store" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-common", editable = "packages/argus_common" },
+    { name = "argus-payroll", editable = "packages/argus_payroll" },
+    { name = "argus-store", editable = "packages/argus_store" },
 ]
 
 [[package]]
@@ -97,11 +117,19 @@ name = "argus-pipelines"
 version = "0.1.0"
 source = { editable = "packages/argus_pipelines" }
 dependencies = [
+    { name = "argus-backends" },
     { name = "argus-common" },
+    { name = "argus-store" },
+    { name = "numpy" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "argus-common", editable = "packages/argus_common" }]
+requires-dist = [
+    { name = "argus-backends", editable = "packages/argus_backends" },
+    { name = "argus-common", editable = "packages/argus_common" },
+    { name = "argus-store", editable = "packages/argus_store" },
+    { name = "numpy", specifier = ">=1.26" },
+]
 
 [[package]]
 name = "argus-store"

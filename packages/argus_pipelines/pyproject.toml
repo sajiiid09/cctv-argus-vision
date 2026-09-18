@@ -1,9 +1,13 @@
 [project]
 name = "argus-pipelines"
 version = "0.1.0"
-description = "Pipeline logic: gate, canteen, occupancy, violence (M3+). Skeleton for now."
+description = "Pipeline logic: gate, canteen, occupancy, violence (M3+)."
 requires-python = ">=3.12"
-dependencies = ["argus-common"]
+# argus-payroll is deliberately absent: evidence flows one way, and the
+# structural tests enforce it. argus-ingest is absent too -- depending on a
+# service would invert the layering, so base.py declares Protocols that
+# RTSPSource and ClipStore satisfy structurally instead.
+dependencies = ["argus-common", "argus-backends", "argus-store", "numpy>=1.26"]
 
 [build-system]
 requires = ["hatchling"]

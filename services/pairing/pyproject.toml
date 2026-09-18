@@ -1,0 +1,19 @@
+[project]
+name = "argus-pairing"
+version = "0.1.0"
+description = "Pairing runner: loads evidence, calls argus.payroll, writes derived rows."
+requires-python = ">=3.12"
+# argus-payroll may not import a database, so the I/O lives here. That is the
+# whole reason this service exists.
+dependencies = ["argus-common", "argus-store", "argus-payroll"]
+
+[project.scripts]
+argus-pairing = "argus.pairing.main:main"
+argus-report = "argus.pairing.report:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/argus"]

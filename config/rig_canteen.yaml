@@ -1,0 +1,51 @@
+# Rig analysis config: the canteen pipeline over the virtual cameras, using the
+# mock detector so it needs no model artefacts at all.
+#
+# What this proves is the logic -- geometry, tracking, direction, clipping,
+# event writing, fail-open. What it cannot prove is accuracy: the rig draws
+# people as bright disks, and the mock detector finds bright disks. Every
+# number produced from this file describes the rig (ARCHITECTURE.md §9.2).
+timezone: Asia/Dhaka
+
+database:
+  dsn: postgresql://argus:argus@localhost:5432/argus
+
+clips:
+  dir: var/clips
+
+pipelines:
+  enabled: true
+  detector_backend: mock
+  queue_depth: 2
+  canteen:
+    person_score: 0.5
+    band: 0.03
+    min_samples_per_side: 2
+    clip_pre_s: 4.0
+    clip_post_s: 2.0
+    clip_timeout_s: 8.0
+
+face:
+  enabled: false   # no templates, no measured threshold (ADR-0010)
+
+ingest:
+  stall_timeout_s: 5
+  decode: software
+  reconnect:
+    initial_s: 0.5
+    max_s: 10
+    jitter: 0.25
+  ring_buffer_seconds: 15
+  analysis_fps: 15
+
+cameras:
+  - camera_id: canteen_door_01
+    role: canteen_door
+    space_id: canteen
+    door_id: c1
+    direction_hint: east
+    source_uri: rtsp://localhost:8554/canteen_door_01
+    is_virtual: true
+    door_line: [0.5, 0.0, 0.5, 1.0]
+    inside_sign: 1
+    analysis_fps: 15

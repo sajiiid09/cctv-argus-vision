@@ -47,11 +47,15 @@ class MockDiskDetector:
 
 
 class MockFaceDetector:
-    """One "face" in the upper third of each bright cluster, with landmarks.
+    """Treats each bright blob as one face, with plausible landmarks.
 
-    The geometry is fake but consistent: eyes above nose above mouth, spaced by
-    the cluster width, so alignment produces a stable crop and a test can assert
-    that the landmark order survived the round trip.
+    The blob *is* the face here rather than a region inside it. A rig "person"
+    is a 32-pixel disk, so carving a face out of its upper third would leave a
+    10-pixel box that every sane quality gate rejects -- and then no test could
+    exercise the matching path at all. The geometry is fake but consistent:
+    eyes level and above the nose, nose above the mouth, spaced by the blob
+    width, so alignment produces a stable crop and a permuted landmark order is
+    detectable.
     """
 
     name = "mock"
@@ -68,21 +72,19 @@ class MockFaceDetector:
             height = y2 - y1
             if width < 8 or height < 8:
                 continue
-            face_h = max(6, height // 3)
-            fx1, fy1, fx2, fy2 = float(x1), float(y1), float(x2), float(y1 + face_h)
-            score = round(float(gray[y1 : y1 + face_h + 1, x1 : x2 + 1].mean()) / 255.0, 4)
+            score = round(float(gray[y1 : y2 + 1, x1 : x2 + 1].mean()) / 255.0, 4)
             if score < score_threshold:
                 continue
+            fx1, fy1, fx2, fy2 = float(x1), float(y1), float(x2), float(y2)
             cx = (fx1 + fx2) / 2.0
             eye_dx = max(2.0, width / 5.0)
-            eye_y = fy1 + face_h * 0.35
             landmarks = np.array(
                 [
-                    [cx - eye_dx, eye_y],
-                    [cx + eye_dx, eye_y],
-                    [cx, fy1 + face_h * 0.55],
-                    [cx - eye_dx * 0.8, fy1 + face_h * 0.8],
-                    [cx + eye_dx * 0.8, fy1 + face_h * 0.8],
+                    [cx - eye_dx, fy1 + height * 0.35],
+                    [cx + eye_dx, fy1 + height * 0.35],
+                    [cx, fy1 + height * 0.55],
+                    [cx - eye_dx * 0.8, fy1 + height * 0.75],
+                    [cx + eye_dx * 0.8, fy1 + height * 0.75],
                 ],
                 dtype=np.float32,
             )
@@ -178,7 +180,10 @@ def _clusters(gray: np.ndarray) -> list[tuple[int, int, int, int]]:
     """Bounding boxes of bright blobs, in raster scan order of their seeds.
 
     A blob is every unclaimed bright pixel within CLUSTER_RADIUS of the seed, in
-    both axes. Vectorised deliberately: the previous formulation walked a Python
+    both axes -- so a blob wider than twice CLUSTER_RADIUS splits into several.
+    The rig draws 32px disks, well inside that, and a mock is not the place to
+    fix it; a test that needs one big blob should use a real detector or a
+    smaller shape. Vectorised deliberately: the previous formulation walked a Python
     set per pixel, which is ~2.5M iterations for two disks and made a 75-second
     rig replay unusable. The boxes it produces are identical -- the golden
     frames assert exact coordinates.

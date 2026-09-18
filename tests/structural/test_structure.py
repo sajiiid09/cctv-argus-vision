@@ -145,3 +145,56 @@ def test_every_artefact_records_a_licence_and_a_hash_or_says_it_is_unresolved() 
         assert resolved != unresolved, (
             f"{name}: either pin url+sha256 or mark status: unresolved, not both or neither"
         )
+
+
+PIPELINES_ROOT = ROOT / "packages" / "argus_pipelines" / "src" / "argus" / "pipelines"
+
+
+def test_pipelines_do_not_import_payroll() -> None:
+    """Evidence flows one way.
+
+    A pipeline that could ask payroll a question would eventually ask it "would
+    this be charged?", and the answer would start shaping what gets written as
+    evidence.
+
+    This matches import statements rather than the whole file text, unlike the
+    payroll wall-clock check above. That one is a raw substring scan on purpose
+    (and AGENTS.md §7 warns about it); here the modules have to be able to
+    *say* they do not import argus.payroll, so the check has to read code
+    rather than prose.
+    """
+    pattern = re.compile(r"^\s*(?:from|import)\s+argus\.payroll", re.MULTILINE)
+    offenders = [
+        str(path.relative_to(ROOT))
+        for path in PIPELINES_ROOT.rglob("*.py")
+        if pattern.search(path.read_text())
+    ]
+    assert not offenders, f"argus.pipelines must not import argus.payroll: {offenders}"
+    metadata = (ROOT / "packages" / "argus_pipelines" / "pyproject.toml").read_text()
+    dependencies = [
+        line for line in metadata.splitlines() if "argus-payroll" in line and "#" not in line
+    ]
+    assert not dependencies, dependencies
+
+
+def test_only_the_pairing_service_writes_derived_payroll_rows() -> None:
+    """One writer, so "where did this number come from" has one answer."""
+    writers = set()
+    for path in _py_files():
+        if "tests/" in str(path.relative_to(ROOT)):
+            continue
+        text = path.read_text()
+        if "insert into dwell_day" in text or "insert into payroll_line" in text:
+            writers.add(str(path.relative_to(ROOT)))
+    assert writers == {"services/pairing/src/argus/pairing/persist.py"}, writers
+
+
+def test_the_pipelines_layer_is_no_longer_a_skeleton() -> None:
+    """M3's whole point: something produces doorway events.
+
+    This is a status assertion, not an architecture one -- it exists so that
+    "the pipeline layer is built" cannot quietly become untrue again, and so
+    that a reader of the test suite can tell which milestone the tree is at.
+    """
+    modules = {path.name for path in PIPELINES_ROOT.glob("*.py")}
+    assert {"canteen.py", "doorway.py", "tracking.py", "faces.py"} <= modules
