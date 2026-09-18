@@ -17,6 +17,7 @@ in an assertion about a number someone would be paid by.
 from __future__ import annotations
 
 import asyncio
+import os
 import signal
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -39,8 +40,11 @@ ROOT = Path(__file__).resolve().parents[2]
 STREAM = "canteen_door_01"
 ANALYSIS_FPS = 15.0
 # One full 60 s loop plus a margin, so every labelled crossing is in the window.
-# The manifest has ten per loop.
-REPLAY_S = 66.0
+# The manifest has ten per loop. ARGUS_REPLAY_SECONDS shortens it for a quick
+# sanity pass on a slow machine: the direction, timing and persistence
+# assertions all still run, and only the "did we see the whole manifest" count
+# is relaxed, because a 25-second window cannot contain a 60-second loop.
+REPLAY_S = float(os.environ.get("ARGUS_REPLAY_SECONDS", "66"))
 # Nine of the ten are expected. The missing one is the second of a pair that
 # cross 1.05 s apart: the mock detector merges two blobs that close into one, so
 # they become one track and one crossing. That is a limit of the mock, not of
@@ -211,8 +215,13 @@ async def test_the_pipeline_reproduces_the_manifest_crossings(rig, store, tmp_pa
     )
     matched_times = {round(float(row["t"]), 3) for _, row in pairs}
     missed = [row["t"] for row in truth if round(float(row["t"]), 3) not in matched_times]
-    assert len(matched_times) >= MIN_MATCHED, (
-        f"only {len(matched_times)} of {len(truth)} labelled crossings were seen; missed {missed}"
+    # A short window cannot contain a whole loop, so only the full-window run
+    # asks for the whole manifest. Everything else below -- direction, timing,
+    # persistence, clips -- is asserted either way.
+    expected = MIN_MATCHED if duration <= REPLAY_S else 2
+    assert len(matched_times) >= expected, (
+        f"only {len(matched_times)} of {len(truth)} labelled crossings were seen in "
+        f"{REPLAY_S:.0f}s; missed {missed}"
     )
 
     # 1. Direction: zero errors, no tolerance. An enter counted as an exit
@@ -263,8 +272,11 @@ async def test_a_stream_loss_mid_replay_fails_open(rig, store, tmp_path) -> None
     untouched evidence -- which tests exactly the part that is real: a gap
     overlapping an interval forces the day to zero (ADR-0023).
     """
+    # Long enough before the kill to have seen several crossings: the rig's
+    # loop has ten in sixty seconds, so twelve seconds is a coin toss and this
+    # test would skip itself half the time.
     _pipeline, _first, _metrics = await _replay(
-        store, tmp_path, 25.0, interrupt_after=12.0, rigctl=rig
+        store, tmp_path, 45.0, interrupt_after=28.0, rigctl=rig
     )
     gaps = await store.list_gaps(STREAM)
     assert gaps, "a killed stream must open a gap: 'we saw nothing' is a fact"
