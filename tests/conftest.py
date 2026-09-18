@@ -103,12 +103,28 @@ async def postgres_db():
         await db.close()
 
 
+async def _truncate_everything(db) -> None:
+    """Empty every table the schema declares, derived rather than listed.
+
+    A hand-maintained list goes stale the moment a migration lands, and the
+    symptom is last test's rows leaking into next test's assertions -- which
+    shows up as an order-dependent failure somewhere else entirely.
+    """
+    rows = await db.fetch_all(
+        "select table_name from information_schema.tables"
+        " where table_schema = 'public' and table_type = 'BASE TABLE'"
+        " and table_name <> '_migration'"
+    )
+    names = sorted(r[0] for r in rows)
+    if not names:
+        return
+    await db.execute(f"truncate table {', '.join(names)} restart identity cascade")
+
+
 @pytest.fixture
 async def store(postgres_db):
     await apply_migrations(postgres_db)
-    await postgres_db.execute(
-        "truncate table doorway_event, stream_gap, camera, ingest_run restart identity cascade"
-    )
+    await _truncate_everything(postgres_db)
     yield Store(postgres_db)
 
 
@@ -173,6 +189,32 @@ def make_door_camera(camera_id: str = "canteen_door_01", uri: str | None = None)
         source_uri=uri or f"rtsp://localhost:8554/{camera_id}",
         is_virtual=True,
     )
+
+
+async def insert_person(
+    db,
+    person_id: str = "p1",
+    *,
+    employee_ref: str | None = None,
+    active_from: str = "2026-01-01",
+) -> str:
+    """A roster row, because doorway_event.person_id is a real foreign key.
+
+    Evidence attributed to a person_id that is not on the roster is invisible in
+    a report and impossible to dispute, so the database refuses it (0004).
+    Unknown stays expressible as null.
+    """
+    await db.execute(
+        "insert into person (person_id, employee_ref, active_from) values (%s, %s, %s)"
+        " on conflict (person_id) do nothing",
+        (person_id, employee_ref or f"hr-{person_id}", active_from),
+    )
+    return person_id
+
+
+@pytest.fixture
+async def person(store):
+    return await insert_person(store.db)
 
 
 @pytest.fixture
