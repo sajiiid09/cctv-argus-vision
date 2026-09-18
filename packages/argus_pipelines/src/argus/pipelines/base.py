@@ -68,8 +68,21 @@ class ClipWriter(Protocol):
     ) -> Path: ...
 
 
-class EventSink(Protocol):
-    """What a pipeline needs from the store, spelled out.
+class GapSink(Protocol):
+    """Just the gap half of the store.
+
+    Narrower than EventSink on purpose: a floor camera records gaps and, by
+    ADR-0002, must never write a doorway event. Asking it for the whole event
+    interface would mean giving it a method it is not allowed to call.
+    """
+
+    async def open_gap(self, camera_id: str, from_utc: datetime, cause: str) -> UUID: ...
+
+    async def close_gap(self, gap_id: UUID, to_utc: datetime) -> None: ...
+
+
+class EventSink(GapSink, Protocol):
+    """What a doorway pipeline needs from the store, spelled out.
 
     The keyword arguments are named rather than **kwargs so that a pipeline
     passing a field the store does not have is a type error here, not a
@@ -92,9 +105,17 @@ class EventSink(Protocol):
         duplicate_of: UUID | None = ...,
     ) -> Any: ...
 
-    async def open_gap(self, camera_id: str, from_utc: datetime, cause: str) -> UUID: ...
-
-    async def close_gap(self, gap_id: UUID, to_utc: datetime) -> None: ...
+    async def insert_clip(
+        self,
+        camera_id: str,
+        rel_path: str,
+        start_utc: datetime,
+        end_utc: datetime,
+        *,
+        keyframe_utc: datetime | None = ...,
+        is_virtual: bool = ...,
+        size_bytes: int | None = ...,
+    ) -> UUID: ...
 
 
 class GapKeeper:
@@ -108,7 +129,7 @@ class GapKeeper:
     different operational facts even though payroll treats them identically.
     """
 
-    def __init__(self, sink: EventSink, camera_id: str, clock: Clock) -> None:
+    def __init__(self, sink: GapSink, camera_id: str, clock: Clock) -> None:
         self._sink = sink
         self._camera_id = camera_id
         self._clock = clock

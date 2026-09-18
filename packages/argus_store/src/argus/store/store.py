@@ -94,14 +94,55 @@ class Store:
             (
                 cam.camera_id,
                 cam.role,
-                cam.source_uri,
-                cam.analysis_uri,
+                # The un-expanded ${VAR} template, never the expanded URI: a
+                # credential must not reach a row, and the schema's CHECK
+                # refuses one anyway.
+                cam.source_uri_template or cam.source_uri,
+                cam.analysis_uri_template or cam.analysis_uri,
                 cam.space_id,
                 cam.door_id,
                 cam.direction_hint,
                 cam.is_virtual,
             ),
         )
+
+    async def insert_clip(
+        self,
+        camera_id: str,
+        rel_path: str,
+        start_utc: datetime,
+        end_utc: datetime,
+        *,
+        keyframe_utc: datetime | None = None,
+        is_virtual: bool = False,
+        size_bytes: int | None = None,
+    ) -> UUID:
+        """Register an extracted clip so something can point at it.
+
+        A clip file with no row is a file nobody can find: the console resolves
+        a `clip_id`, never a path, and retention consults references rather than
+        age (RISKS.md §9). The keyframe is the clip's *actual* first frame, which
+        is at or before the requested start (ADR-0031) and is what a deep link
+        must be measured from.
+        """
+        clip_id = new_uuid()
+        await self.db.execute(
+            "insert into clip (clip_id, camera_id, rel_path, start_utc, end_utc,"
+            " keyframe_utc, is_virtual, bytes) values (%s,%s,%s,%s,%s,%s,%s,%s)"
+            " on conflict (rel_path) do nothing",
+            (
+                clip_id,
+                camera_id,
+                rel_path,
+                start_utc,
+                end_utc,
+                keyframe_utc or start_utc,
+                is_virtual,
+                size_bytes,
+            ),
+        )
+        row = await self.db.fetch_one("select clip_id from clip where rel_path = %s", (rel_path,))
+        return row[0] if row else clip_id
 
     async def record_ingest_run(self, code_version: str, cfg_hash: str) -> UUID:
         run_id = new_uuid()

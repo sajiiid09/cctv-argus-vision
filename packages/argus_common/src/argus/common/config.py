@@ -2,25 +2,149 @@
 
 YAML file plus ``ARGUS_SECTION__KEY`` env overrides, coerced to field types.
 No ad-hoc CLI arguments that only exist on one machine.
+
+**Credentials never live in the YAML.** Values may contain ``${VAR}``, resolved
+from the environment or from ``config/secrets.env`` (which must be mode 600 or
+loading fails). The camera rows keep the *un-expanded* template, so an RTSP
+password cannot reach the database, a log line or a git diff. Every config
+object with a secret in it redacts its own repr.
 """
 
 from __future__ import annotations
 
 import os
+import re
+import stat
 import typing
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+SECRETS_PATH = "config/secrets.env"
+_VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+# Field names whose values are never printed.
+_SECRET_FIELD = re.compile(r"password|secret|passphrase|token|credential|dsn", re.IGNORECASE)
+# user:password@ inside a URI. The password is the point, but the username is
+# worth hiding too: it is half of a credential.
+_CREDENTIAL_URI = re.compile(r"(?<=://)[^/@\s]+:[^/@\s]+@")
 
 
 class ConfigError(Exception):
     pass
 
 
-@dataclass(slots=True)
-class CameraConfig:
+def load_secrets(path: str | Path = SECRETS_PATH) -> dict[str, str]:
+    """Read KEY=VALUE pairs from a mode-600 file, or return nothing.
+
+    Absent is fine and silent: CI and containers pass real environment
+    variables, and the file is a developer convenience. Present but readable by
+    anyone else is fatal -- a world-readable secrets file is worse than an
+    environment variable, because it looks like protection.
+
+    No shell semantics. No `export`, no interpolation, no command substitution:
+    this is a list of values, not a script.
+    """
+    p = Path(path)
+    if not p.is_file():
+        return {}
+    mode = stat.S_IMODE(p.stat().st_mode)
+    if mode & 0o177:
+        raise ConfigError(
+            f"{p} is mode {mode:o}; a secrets file must be 0600 (chmod 600 {p}). "
+            "A world-readable secrets file is worse than an environment variable "
+            "because it looks like protection."
+        )
+    values: dict[str, str] = {}
+    for line_number, line in enumerate(p.read_text().splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" not in stripped:
+            raise ConfigError(f"{p}:{line_number}: expected KEY=VALUE")
+        key, _, value = stripped.partition("=")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        values[key.strip()] = value
+    return values
+
+
+def expand(raw: Any, secrets: dict[str, str], *, env: dict[str, str] | None = None) -> Any:
+    """Resolve ${VAR} in every string leaf.
+
+    The environment wins over the file: containers and CI pass the real thing,
+    and a stale local file that silently overrode it would be found in
+    production rather than here.
+    """
+    environ = env if env is not None else dict(os.environ)
+
+    def resolve(text: str) -> str:
+        def one(match: re.Match[str]) -> str:
+            name = match.group(1)
+            if name in environ:
+                return environ[name]
+            if name in secrets:
+                return secrets[name]
+            # Name the VARIABLE, never the surrounding string: a
+            # half-substituted rtsp://admin:${PW}@10.0.0.5/ in an error message
+            # is a credential in a log.
+            raise ConfigError(
+                f"{name} is not set (put it in {SECRETS_PATH} at mode 600, or in the "
+                "environment)"
+            )
+
+        return _VAR.sub(one, text)
+
+    if isinstance(raw, str):
+        return resolve(raw)
+    if isinstance(raw, dict):
+        return {key: expand(value, secrets, env=environ) for key, value in raw.items()}
+    if isinstance(raw, list):
+        return [expand(value, secrets, env=environ) for value in raw]
+    return raw
+
+
+def redact(name: str, value: Any) -> Any:
+    """What a repr shows instead of a secret.
+
+    Secrecy is inherited by a dict's values: `role_passphrases` is the field
+    that makes them secret, and its keys are role names -- redacting per key
+    would print every passphrase under a harmless-looking name.
+    """
+    if isinstance(value, dict):
+        inherited = _SECRET_FIELD.search(name)
+        return {
+            key: redact(name if inherited else key, item) for key, item in value.items()
+        }
+    if not isinstance(value, str) or not value:
+        return value
+    if _SECRET_FIELD.search(name):
+        return "***"
+    return _CREDENTIAL_URI.sub("***:***@", value)
+
+
+class RedactedRepr:
+    """Mixin: a repr that cannot print a credential.
+
+    Both ``__repr__`` and ``__str__``, because ``f"{config}"`` calls ``__str__``
+    and only falls back to ``__repr__`` when ``__str__`` is undefined -- so
+    defining one and not the other leaves the leak open on the path people
+    actually use.
+    """
+
+    def __repr__(self) -> str:
+        rendered = ", ".join(
+            f"{f.name}={redact(f.name, getattr(self, f.name))!r}" for f in fields(self)  # type: ignore[arg-type]
+        )
+        return f"{type(self).__name__}({rendered})"
+
+    __str__ = __repr__
+
+
+@dataclass(slots=True, repr=False)
+class CameraConfig(RedactedRepr):
     camera_id: str
     role: str  # gate | canteen_door | floor
     source_uri: str
@@ -44,8 +168,17 @@ class CameraConfig:
     # PTZ preset this camera is expected to sit at (ADR-0029). Recorded so a
     # drift check has something to name when it fires.
     preset_id: str | None = None
+    # The URI as written in config, ${VAR} and all. This is what is stored in the
+    # camera row: an expanded one would put a password in the database, and the
+    # schema refuses it anyway.
+    source_uri_template: str = ""
+    analysis_uri_template: str | None = None
 
     def __post_init__(self) -> None:
+        if not self.source_uri_template:
+            self.source_uri_template = self.source_uri
+        if self.analysis_uri_template is None:
+            self.analysis_uri_template = self.analysis_uri
         valid_roles = {"gate", "canteen_door", "floor"}
         if self.role not in valid_roles:
             raise ConfigError(
@@ -87,8 +220,8 @@ class CameraConfig:
         return self.analysis_uri or self.source_uri
 
 
-@dataclass(slots=True)
-class DatabaseConfig:
+@dataclass(slots=True, repr=False)
+class DatabaseConfig(RedactedRepr):
     dsn: str = "postgresql://argus:argus@localhost:5432/argus"
 
 
@@ -155,8 +288,8 @@ class IngestConfig:
         return camera.analysis_fps if camera.analysis_fps is not None else self.analysis_fps
 
 
-@dataclass(slots=True)
-class UiConfig:
+@dataclass(slots=True, repr=False)
+class UiConfig(RedactedRepr):
     """The operator console (ADR-0028).
 
     Bound to localhost, because the console authenticates a *role* and not a
@@ -188,8 +321,8 @@ class UiConfig:
             raise ConfigError(f"ui.role_passphrases has unknown roles: {unknown}")
 
 
-@dataclass(slots=True)
-class GateConfig:
+@dataclass(slots=True, repr=False)
+class GateConfig(RedactedRepr):
     """The badge reader, and how long we wait for a face after a tap.
 
     ``tap_source`` defaults to ``simulated`` because no reader has been on a LAN
@@ -485,8 +618,8 @@ class PipelinesConfig:
             raise ConfigError("pipelines.queue_depth must be at least 1")
 
 
-@dataclass(slots=True)
-class AppConfig:
+@dataclass(slots=True, repr=False)
+class AppConfig(RedactedRepr):
     timezone: str = "Asia/Dhaka"
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     clips: ClipsConfig = field(default_factory=ClipsConfig)
@@ -560,13 +693,24 @@ def apply_env_overrides(config: AppConfig, env: dict[str, str] | None = None) ->
     return config
 
 
-def load_config(path: str | Path) -> AppConfig:
+def load_config(
+    path: str | Path, *, secrets_path: str | Path = SECRETS_PATH, env: dict[str, str] | None = None
+) -> AppConfig:
     p = Path(path)
     if not p.exists():
         raise ConfigError(f"config file not found: {p}")
-    raw = yaml.safe_load(p.read_text()) or {}
+    raw_text = yaml.safe_load(p.read_text()) or {}
+    secrets = load_secrets(secrets_path)
+    raw = expand(raw_text, secrets, env=env)
     try:
-        cameras = [CameraConfig(**c) for c in raw.get("cameras", [])]
+        cameras = []
+        for expanded, original in zip(
+            raw.get("cameras", []), raw_text.get("cameras", []), strict=True
+        ):
+            camera = dict(expanded)
+            camera["source_uri_template"] = original.get("source_uri", "")
+            camera["analysis_uri_template"] = original.get("analysis_uri")
+            cameras.append(CameraConfig(**camera))
         ingest_raw = dict(raw.get("ingest", {}))
         reconnect = ReconnectConfig(**ingest_raw.pop("reconnect", {}))
         ingest = IngestConfig(reconnect=reconnect, **ingest_raw)

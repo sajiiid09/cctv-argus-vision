@@ -99,6 +99,19 @@ after this milestone inherits the abstraction instead of retrofitting it.
 
 ## M3 — Canteen doorway pipeline, synthetic (week 3–5)
 
+**Status 2026-09-18: built, minus identity.** The path runs end to end on rig
+footage — detect, track, cross, clip, write, pair, report, review — and
+`tests/rig/test_canteen_replay.py` finds nine of the manifest's ten labelled
+crossings with every direction correct and worst timing error inside
+`2/analysis_fps + 0.25s`. The tenth is the second of a pair crossing 1.05 s
+apart, which the mock detector merges into one blob; tailgating at real density
+is on the `ARCHITECTURE.md` §9.2 list.
+
+**Open, and it is the exit criterion that matters:** no face threshold has been
+measured, so `face.enabled` is false and every crossing is `unknown`. Unknown
+fails open to zero, so the numbers are honest — but nothing is attributed to
+anybody, and a threshold cannot be chosen without real faces (ADR-0010).
+
 **Goal.** The payroll-affecting path, end to end, on recorded video: face →
 identity → direction → doorway event → pairing → dwell → overage → shadow report.
 
@@ -133,6 +146,12 @@ them. Payroll export. Occupancy. Violence.
 
 ## M4 — Gate attendance verification (week 5–6)
 
+**Status 2026-09-18: built against a simulated reader.** Taps, the four-way
+outcome, `reader_gap`, the review page and the as-of badge-holder lookup all
+exist and are tested. `ZktTapSource` is written and has never exchanged a byte
+with a device; `SimulatedTapSource` is the configured default. Verification
+itself returns `not_attempted` until a threshold is measured.
+
 **Goal.** Badge tap + face verify (1:1, not 1:N), producing attendance records
 with `verified / mismatch / no_face` distinguished.
 
@@ -155,6 +174,13 @@ and treating them as one problem would hide that.
 ---
 
 ## M5 — Workstation occupancy (week 6–7)
+
+**Status 2026-09-18: built.** Seat regions are configuration in frame fractions,
+the cadence is slow and the state is majority-smoothed, samples carry no
+`person_id`, and the test PLAN asks for below — no occupancy code path reaches a
+payroll table — checks both the import graph and `occupancy_sample`'s actual
+foreign keys. Per ADR-0019 the default view is line-level with per-seat behind
+the admin tier.
 
 **Goal.** Anonymous per-seat occupied/empty on a floor view, as a management
 report.
@@ -181,6 +207,13 @@ that could become a disciplinary artefact.
 ---
 
 ## M6 — Violence detection, trigger + queue (week 7–9)
+
+**Status 2026-09-18: the trigger and the queue are built; there is no
+classifier, by decision (ADR-0012).** Three geometric pose features, each
+normalised by shoulder width, one candidate per cooldown, and a review queue
+where nothing auto-dismisses. The thresholds are PROVISIONAL and rig-shaped —
+the rig contains no fights — and the false-positive rate on a real floor is
+unmeasurable before a site pilot.
 
 **Goal.** Cheap always-on pose trigger → clip → human review queue. Trigger-only
 is a valid exit; a classifier stage, if any, sits before the queue.

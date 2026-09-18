@@ -305,3 +305,42 @@ def test_there_is_no_export_anywhere() -> None:
         if "csv.writer" in path.read_text() or "to_csv" in path.read_text()
     ]
     assert not writers, f"CSV writers: {writers}"
+
+
+def test_the_test_fixture_truncates_every_table_the_schema_declares() -> None:
+    """A hand-maintained truncate list goes stale the moment a migration lands,
+    and the symptom is last test's rows leaking into next test's assertions --
+    an order-dependent failure somewhere else entirely.
+
+    So the fixture derives the list, and this asserts it still does.
+    """
+    conftest = (ROOT / "tests" / "conftest.py").read_text()
+    assert "information_schema.tables" in conftest
+    assert "truncate table doorway_event, stream_gap, camera, ingest_run" not in conftest
+
+
+def test_no_yaml_in_the_tree_carries_a_credential() -> None:
+    """Credentials live in config/secrets.env (mode 600, git-ignored) and reach
+    the YAML as ${VAR} at load time."""
+    # The one allowed literal: the dev Postgres DSN, argus/argus against the
+    # container the compose file creates. It is not a secret -- it is the same
+    # two words on every developer's machine and in CI -- and pretending
+    # otherwise would mean every test run needed a secrets file.
+    allowed = re.compile(r"://argus:argus@(localhost|postgres)")
+    offenders = []
+    for path in [*ROOT.glob("config/*.yaml"), *ROOT.glob("infra/**/*.yaml")]:
+        if path.name.endswith(".example"):
+            continue
+        for number, line in enumerate(path.read_text().splitlines(), start=1):
+            if re.search(r"://[^/@\s]+:[^/@\s$]+@", line) and not allowed.search(line):
+                offenders.append(f"{path.relative_to(ROOT)}:{number}")
+    assert not offenders, f"credentials in committed config: {offenders}"
+
+
+def test_the_secrets_example_has_no_values_in_it() -> None:
+    example = ROOT / "config" / "secrets.env.example"
+    assert example.is_file()
+    for line in example.read_text().splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        assert line.endswith("="), f"{line!r} has a value: somebody will commit that"

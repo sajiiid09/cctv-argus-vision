@@ -28,6 +28,7 @@ from argus.pipelines.occupancy import INSERT_SAMPLE, OccupancyPipeline
 from argus.pipelines.runtime import Dropped, SessionRuntime
 from argus.pipelines.violence import INSERT_CANDIDATE, ViolenceTrigger
 from argus.store.db import Database
+from argus.store.store import Store
 
 log = logging.getLogger(__name__)
 
@@ -157,28 +158,23 @@ class FloorRunner:
             log.warning("%s: clip for candidate failed: %s", self.camera.camera_id, exc)
             self.metrics.incr(m.CLIP_FAILURES, camera_id=self.camera.camera_id)
             return None
-        clip_id = uuid4()
-        await self.db.execute(
-            "insert into clip (clip_id, camera_id, rel_path, start_utc, end_utc, keyframe_utc,"
-            " is_virtual) values (%s,%s,%s,%s,%s,%s,%s)",
-            (
-                clip_id,
-                self.camera.camera_id,
-                str(path.relative_to(self.clips.root)),
-                start,
-                end,
-                start,
-                self.camera.is_virtual,
-            ),
+        return await Store(self.db).insert_clip(
+            self.camera.camera_id,
+            str(path.relative_to(self.clips.root)),
+            start,
+            end,
+            keyframe_utc=start,
+            is_virtual=self.camera.is_virtual,
+            size_bytes=path.stat().st_size if path.is_file() else None,
         )
-        return clip_id
 
 
 class _GapSink:
-    """The slice of EventSink a floor pipeline needs: gaps, and no events.
+    """Gaps, and nothing else -- it satisfies `GapSink`, not `EventSink`.
 
     A floor camera produces no doorway events by design (identity lives at
-    doorways only, ADR-0002), so this sink cannot write one.
+    doorways only, ADR-0002), so this cannot write one: the method exists purely
+    to say so if somebody tries.
     """
 
     def __init__(self, db: Database) -> None:

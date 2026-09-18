@@ -2,12 +2,16 @@
 
 CCTV workplace analytics for a garments factory in Bangladesh.
 
-**Status 2026-09-17: M0 closed, M1 (rig + ingest) and M2 (backends + parity)
-implemented; the Linux/CPU leg is verified end-to-end.** Remaining M1 exit:
-GPU decode on the RTX box; remaining M2 legs: CUDA and CoreML (Mac). M3–M6 are
-in progress against a two-week demo deadline on a staged mock environment with
-real cameras (see `PLAN.md`). The repository directory is called `argus`, which
-is also the code namespace; the product is **Sparrow Vision** (ADR-0024).
+**Status 2026-09-18: M0–M2 closed on the CPU leg; M3–M6 built and tested, on rig
+footage only.** The canteen path runs end to end — RTSP, decode, detect, track,
+cross, clip, write, pair, report, review — and the rig replay finds nine of the
+manifest's ten labelled crossings with every direction correct. Identity is off
+(no face threshold has been measured, so every crossing is `unknown`, which
+fails open), the badge reader has never been spoken to, and every accuracy
+number describes the rig. Remaining M1 exit: GPU decode on the RTX box;
+remaining M2 legs: CUDA on staging, CoreML on demand (ADR-0022). See `PLAN.md`.
+The repository directory is called `argus`, which is also the code namespace;
+the product is **Sparrow Vision** (ADR-0024).
 
 **This deployment is a personal, non-commercial test environment.** ADR-0030
 permits AGPL and research-only model weights on that basis, and they may not
@@ -51,6 +55,7 @@ re-identification. Identity is resolved **only at doorways** (ADR-0002).
 | Wondering why X was chosen | `DECISIONS.md` |
 | Touching payroll logic | `ARCHITECTURE.md` §7.3, `AGENTS.md` §1–2, §7 |
 | Setting up a machine | `AGENTS.md` §5–6 (macOS leg unverified) |
+| Running any of it | `AGENTS.md` §5 — one command per service |
 | Worried about privacy or audits | `RISKS.md` |
 | Planning the next few weeks | `PLAN.md` |
 | Confused by a word | `GLOSSARY.md` |

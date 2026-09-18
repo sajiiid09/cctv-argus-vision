@@ -64,6 +64,7 @@ class _Sink:
         self.events: list[dict] = []
         self.gaps: list[tuple[str, str]] = []
         self.closed: list[UUID] = []
+        self.clips_registered: list[tuple[str, str]] = []
 
     async def insert_doorway_event(self, camera_id, door_id, ts_utc, direction, **kw):
         row = {
@@ -80,6 +81,10 @@ class _Sink:
             event_id = row["event_id"]
 
         return _Row()
+
+    async def insert_clip(self, camera_id, rel_path, start_utc, end_utc, **kw):
+        self.clips_registered.append((camera_id, rel_path))
+        return uuid4()
 
     async def open_gap(self, camera_id: str, from_utc: datetime, cause: str) -> UUID:
         self.gaps.append((camera_id, cause))
@@ -150,6 +155,9 @@ async def test_a_walk_through_the_door_writes_one_enter_event() -> None:
         assert [e["direction"] for e in sink.events] == ["enter"]
         assert sink.events[0]["person_id"] is None
         assert sink.events[0]["clip_ref"].startswith("canteen_door_01/")
+        # The file is registered too: the console resolves a clip_id, never a
+        # path, so an unregistered clip is one nobody can open.
+        assert sink.clips_registered == [("canteen_door_01", sink.events[0]["clip_ref"])]
     finally:
         await runtime.aclose()
 

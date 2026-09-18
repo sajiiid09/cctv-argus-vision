@@ -133,3 +133,28 @@ its trigger. Without it, violence clips begin after the interesting part.
 **Sparrow Vision** — the product name (ADR-0024). The code namespace is
 `argus.`; that is an import path, not a product name, and the two coexist
 deliberately.
+
+**Tap** — a badge presented at the gate reader. Recorded before any face
+comparison is attempted, so a crash loses a verification result and never the
+attendance evidence. Four outcomes follow it: `true`, `false`, `no_face`,
+`not_attempted` — and `no_face` (a camera problem) never collapses into `false`
+(a person to ask about).
+
+**Reader gap** — the badge reader's `stream_gap`: the window in which nobody was
+listening to it. "Nobody tapped" and "we were not listening" are different
+facts. Unlike a stream gap it zeroes nothing, because the gate does not touch
+pay.
+
+**Candidate** — one item in the violence review queue: a clip, a trigger score,
+and the three pose features that produced it. Never a verdict, never a name, and
+nothing dismisses it but a named human (ADR-0012).
+
+**Pairing run** — one execution of `run_pairing` over a window, stored with the
+policy that produced it and a human sentence describing it. Recomputation writes
+a **new** run; nothing is ever edited, so a disputed line from months ago can be
+reproduced exactly.
+
+**Trigger (as opposed to a classifier)** — something cheap that decides whether
+a human should look. The violence pipeline is trigger-only by decision: a model
+trained on other people's fights has no business producing a conclusion about a
+specific worker.

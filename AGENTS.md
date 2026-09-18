@@ -6,12 +6,21 @@ Absorbs the former `TESTING.md` and `DEV_SETUP.md`.
 Read `SOUL.md` first. It is short, and it decides most arguments this document
 would otherwise have to have.
 
-**Current state, 2026-09-17.** M0 closed. M1 (rig + ingest) and M2 (backends +
-parity) implemented and verified on Linux/CPU. The pairing state machine
-(`packages/argus_payroll`) is built and tested but runs on no real data yet,
-because nothing produces doorway events. Outstanding: GPU decode and the CUDA
-parity leg, both needing the NVIDIA box. M3+ is in progress against a two-week
-demo deadline. Update this paragraph when it stops being true.
+**Current state, 2026-09-18.** M0–M2 closed on the CPU leg. M3–M6 are built and
+tested **on rig footage**: the canteen path runs end to end and writes doorway
+events, clips, pairing runs and payroll lines; the gate, occupancy, violence
+trigger, enrolment CLI and operator console all exist. Five services:
+`ingest`, `pairing`, `enrol`, `gate`, `ui`.
+
+Three things that sound like features and are not, so nobody claims them:
+identity is **off** (no face threshold has been measured, so every crossing is
+`unknown`, which fails open to zero); the model artefacts for detection, pose
+and faces are **unresolved** in `models/registry.yaml` and the rig runs on mock
+backends; and the badge reader client has **never been spoken to**.
+
+Outstanding and hardware-blocked: GPU decode, the CUDA parity leg, every sizing
+number, per-camera GOP and the two-concurrent-client check, live ZKT taps, face
+thresholds, demo rehearsal. Update this paragraph when it stops being true.
 
 **This deployment is a personal, non-commercial test environment.** ADR-0030
 permits AGPL and research-only model weights on that basis and states the
@@ -135,7 +144,19 @@ uv run python rig/synthetic/generate.py # deterministic footage + manifests
 uv run python rig/bin/rig_serve.py      # serve the virtual cameras
 uv run python rig/bin/rig_rigctl.py status|pause|resume|stop|start <stream>
 uv run python -m argus.ingest --config config/dev.yaml
+uv run python -m argus.ingest --config config/rig_canteen.yaml   # + canteen analysis (mock detector)
+uv run python -m argus.pairing --config config/dev.yaml --once --day 2026-09-18
+uv run python -m argus.pairing.report --config config/dev.yaml --day 2026-09-18
+uv run python -m argus.gate --config config/dev.yaml --once --badge B-1
+uv run python -m argus.ui --config config/dev.yaml       # 127.0.0.1:8080 (ADR-0028)
+uv run argus-enrol --config config/dev.yaml list
 ```
+
+Credentials are never in the YAML: values may contain `${VAR}`, resolved from
+the environment or `config/secrets.env` (mode 600 or loading refuses, and
+git-ignored). `config/secrets.env.example` lists the names. The camera rows keep
+the **un-expanded** template, and the schema has a CHECK that refuses a
+credential-bearing URI — so a password cannot reach a row, a log, or a diff.
 
 Selecting tests — markers gate on external dependencies, so use them rather than
 paths:
@@ -144,10 +165,16 @@ paths:
 uv run pytest -m "not rig and not postgres"   # CI's fast job; no docker needed
 uv run pytest -m golden                       # needs models/fetch.py to have run
 uv run pytest tests/payroll -q                # the high-care tier
-ARGUS_PARITY_BACKEND=onnx-cuda uv run pytest -m golden   # the CUDA leg
+ARGUS_PARITY_BACKEND=onnx-cuda uv run pytest -m golden     # the CUDA leg
+ARGUS_PARITY_BACKEND=onnx-coreml uv run pytest -m golden   # the CoreML leg (ADR-0022, on demand)
 ```
 
-Escape hatches: `ARGUS_PG_HOST_PORT=5434` when 5432 is busy, with
+The `reader` marker holds the one test that needs a badge reader on the LAN.
+Nothing selects it, and that is the point: the command exists before somebody is
+standing next to the hardware.
+
+Escape hatches: `ARGUS_PG_HOST_PORT=5434` when 5432 is busy — a native Postgres
+on the dev Mac takes it, so every command there needs this — with
 `ARGUS_DATABASE__DSN` / `ARGUS_TEST_DSN` pointed at the same port;
 `ARGUS_MODELS_ROOT` when artefacts are not under `./models`.
 
@@ -241,6 +268,14 @@ Two traps when editing payroll: the wall-clock check is a **raw substring scan
 of the file text, comments included**, so a comment quoting the banned call fails
 the test enforcing it. And the banned-import list includes the database and
 Hypothesis, because payroll must be importable and testable with nothing running.
+
+**The rig's publishers are tracked by pidfile**, and "is this pid alive?" is
+subtler than it looks: a killed-but-unreaped ffmpeg is a zombie and answers
+`kill(pid, 0)` happily. Believing one is alive is not cosmetic -- fault
+injection then signals a corpse, the stream never stalls, and the test meant to
+prove stall detection fails with no hint why. The check reads the process state
+from `/proc` on Linux and from `ps` elsewhere, and confirms the command is still
+ffmpeg in case the pid was recycled.
 
 **Video tests go through the rig over RTSP**, never by reading frames from disk.
 Reading files bypasses decode, reconnection and timing, which is where the bugs

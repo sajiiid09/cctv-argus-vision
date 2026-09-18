@@ -135,9 +135,14 @@ async def _replay(
         await runtime.aclose()
         if killed and rigctl is not None:
             # The rig fixture is session-scoped, so a stream this test killed
-            # would stay dead for everything after it. Never leave it down.
+            # would stay dead for everything after it -- and a stream that is
+            # merely *starting* fails the next test's first connect. So wait for
+            # it to actually publish again, the same way the fixture does.
+            from conftest import _wait_publisher
+
             rigctl.spawn(rigctl.find(STREAM))
-            await asyncio.sleep(2.0)
+            if not await _wait_publisher(STREAM, seconds=30):
+                pytest.fail(f"{STREAM} did not come back after this test killed it")
     return pipeline, first, metrics
 
 
@@ -239,6 +244,14 @@ async def test_the_pipeline_reproduces_the_manifest_crossings(rig, store, tmp_pa
     assert with_clips, "no clip was written for any crossing"
     for row in with_clips:
         assert (tmp_path / row.clip_ref).is_file(), f"{row.clip_ref} was recorded but not written"
+    # ...and registered, because the console resolves a clip_id and never a path.
+    registered = await store.db.fetch_all(
+        "select rel_path, is_virtual from clip where camera_id = %s", (STREAM,)
+    )
+    assert {row[0] for row in registered} >= {row.clip_ref for row in with_clips}
+    assert all(row[1] is True for row in registered), (
+        "a clip from the rig must be identifiable as virtual, so an export can refuse it"
+    )
 
 
 async def test_a_stream_loss_mid_replay_fails_open(rig, store, tmp_path) -> None:

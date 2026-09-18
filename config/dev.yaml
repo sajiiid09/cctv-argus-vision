@@ -5,6 +5,18 @@ timezone: Asia/Dhaka
 database:
   dsn: postgresql://argus:argus@localhost:5432/argus
 
+# The console. Passphrases come from config/secrets.env (mode 600) via ${VAR};
+# with none set, nobody can log in, which is the safe default (ADR-0028).
+ui:
+  bind_host: 127.0.0.1
+  port: 8080
+
+# The badge reader. Simulated until one exists on a LAN we can reach.
+gate:
+  tap_source: simulated
+  reader_id: gate_reader_01
+  camera_id: gate_door
+
 clips:
   dir: var/clips
 

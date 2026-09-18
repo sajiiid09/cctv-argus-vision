@@ -57,6 +57,15 @@ async def run(config: AppConfig, args: argparse.Namespace) -> int:
     source = build_source(config)
     try:
         await apply_migrations(db)
+        # gate_event references camera, so the camera this reader watches has to
+        # exist before the first tap. Upserting it here means the gate can be
+        # started on its own rather than only after ingest.
+        from argus.store.store import Store
+
+        store = Store(db)
+        for cam in config.cameras:
+            if cam.camera_id == config.gate.camera_id:
+                await store.upsert_camera(cam)
         runner = GateRunner(
             db,
             source,

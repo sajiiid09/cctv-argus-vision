@@ -208,8 +208,22 @@ class CanteenPipeline:
             )
 
         clip_path = await self._clip_for(crossing)
+        clip_ref = self._clip_ref(clip_path)
         if clip_path is None and self.clips is not None:
             flags.append("missing_clip")
+        elif clip_path is not None and clip_ref is not None:
+            # Register the file so something can point at it: the console
+            # resolves a clip_id and never a path, and an unregistered clip is a
+            # clip nobody can find.
+            await self.events.insert_clip(
+                self.camera.camera_id,
+                clip_ref,
+                crossing.ts_utc - timedelta(seconds=self.cfg.clip_pre_s),
+                crossing.ts_utc + timedelta(seconds=self.cfg.clip_post_s),
+                keyframe_utc=crossing.ts_utc - timedelta(seconds=self.cfg.clip_pre_s),
+                is_virtual=self.camera.is_virtual,
+                size_bytes=clip_path.stat().st_size if clip_path.is_file() else None,
+            )
 
         duplicate_of = self._duplicate_of(person_id, crossing)
         if duplicate_of is not None:
@@ -223,7 +237,7 @@ class CanteenPipeline:
             person_id=person_id,
             match_confidence=confidence,
             detection_quality=crossing.quality,
-            clip_ref=self._clip_ref(clip_path),
+            clip_ref=clip_ref,
             ingest_run_id=self.ingest_run_id,
             duplicate_of=duplicate_of,
         )

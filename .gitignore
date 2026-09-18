@@ -19,6 +19,9 @@ var/
 
 # local only
 .env
+# credentials: expanded into config at load time, never committed. The example
+# beside it is.
+config/secrets.env
 
 # hypothesis example database: machine-local, never shared
 .hypothesis/
