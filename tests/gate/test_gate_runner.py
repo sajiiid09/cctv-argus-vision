@@ -17,7 +17,7 @@ from argus.pipelines.gate.simulated import SimulatedTapSource
 from argus.pipelines.gate.taps import Tap, TapChannel
 from argus.pipelines.gate.verify import VerifyOutcome
 
-from conftest import insert_person
+from helpers import insert_person
 
 pytestmark = pytest.mark.postgres
 
@@ -217,7 +217,7 @@ async def test_the_tap_survives_a_failed_verification(store, monkeypatch) -> Non
 
 
 async def test_a_reader_going_quiet_opens_and_closes_a_gap(store) -> None:
-    """"Nobody tapped" and "we were not listening" are different facts."""
+    """ "Nobody tapped" and "we were not listening" are different facts."""
     await _gate_camera(store)
 
     class _Source(SimulatedTapSource):

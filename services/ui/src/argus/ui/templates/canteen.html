@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Canteen time</h2>
+{% if run %}
+  <div class="shadow">
+    <strong>Shadow mode.</strong> Nothing here is written to payroll and no export exists.<br>
+    {{ run.policy_description }}<br>
+    <span class="muted">
+      logic {{ run.logic_version }} · policy <code>{{ run.policy_fingerprint }}</code> ·
+      computed {{ run.computed_at }} · run <code>{{ run.pairing_run_id }}</code>
+    </span>
+  </div>
+  <table>
+    <tr>
+      <th>Day</th><th>Person</th><th>Space</th><th>Measured</th>
+      <th>Allowance</th><th>Over</th><th>State</th><th>Flags</th>
+    </tr>
+    {% for day in days %}
+      <tr>
+        <td>{{ day.local_day }}</td>
+        <td><a href="/canteen/person/{{ day.person_id }}/{{ day.local_day }}">{{ day.person_id }}</a></td>
+        <td>{{ day.space_id }}</td>
+        <td>{{ day.total_dwell_s | humanise }}</td>
+        <td>{{ day.allowance_s | humanise }}</td>
+        <td>{{ day.overage_s | humanise }}</td>
+        <td class="{{ 'flagged' if day.day_state == 'flagged' else 'clean' }}">{{ day.day_state }}</td>
+        <td class="muted">{{ day.flags | join(', ') }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+  <p class="muted">
+    A flagged day charges nothing, on purpose: any interval that did not resolve
+    cleanly forgives the whole day (ADR-0023).
+  </p>
+{% else %}
+  <p class="muted">No pairing run has been computed yet.</p>
+{% endif %}
+{% endblock %}

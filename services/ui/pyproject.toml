@@ -1,0 +1,26 @@
+[project]
+name = "argus-ui"
+version = "0.1.0"
+description = "Operator console: canteen days, gate outcomes, review queue, clips."
+requires-python = ">=3.12"
+# All MIT/BSD (ADR-0015 checked the licences). No payroll dependency: the
+# console renders stored rows and never recomputes a number.
+dependencies = [
+    "argus-common",
+    "argus-store",
+    "fastapi>=0.115",
+    "jinja2>=3.1",
+    # Form posts: the review buttons and the login form.
+    "python-multipart>=0.0.9",
+    "uvicorn>=0.32",
+]
+
+[project.scripts]
+argus-ui = "argus.ui.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/argus"]

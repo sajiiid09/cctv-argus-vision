@@ -24,7 +24,7 @@ from argus.pairing.report import (
 )
 from argus.payroll import run_pairing
 
-from conftest import insert_person
+from helpers import insert_person
 
 pytestmark = pytest.mark.postgres
 

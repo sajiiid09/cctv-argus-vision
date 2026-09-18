@@ -20,7 +20,8 @@ from argus.pairing.policy import lead_in_seconds, policy_from_config
 from argus.payroll import run_pairing
 from argus.store.bus import EventBus
 
-from conftest import TEST_DSN, insert_person
+from conftest import TEST_DSN
+from helpers import insert_person
 
 pytestmark = pytest.mark.postgres
 

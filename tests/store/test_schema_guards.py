@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from conftest import insert_person
+from helpers import insert_person
 
 pytestmark = pytest.mark.postgres
 

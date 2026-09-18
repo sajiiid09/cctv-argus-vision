@@ -234,3 +234,74 @@ def test_the_two_face_thresholds_are_never_read_by_the_same_module() -> None:
         if "canteen_match_threshold" in text and "gate_verify_threshold" in text:
             both.append(relative)
     assert not both, f"{both} reads both face thresholds"
+
+
+def test_the_console_imports_no_payroll_logic() -> None:
+    """ADR-0015's consequence: the console renders stored rows.
+
+    The canteen page's header comes from `pairing_run.policy_description`,
+    written when the run was computed, so the page describes the run that
+    produced its numbers rather than whatever the config says today. That only
+    holds if the console cannot recompute anything.
+    """
+    ui_root = ROOT / "services" / "ui"
+    pattern = re.compile(r"^\s*(?:from|import)\s+argus\.payroll", re.MULTILINE)
+    offenders = [
+        str(path.relative_to(ROOT))
+        for path in ui_root.rglob("*.py")
+        if pattern.search(path.read_text())
+    ]
+    assert not offenders, f"the console must not import argus.payroll: {offenders}"
+    for name in ("run_pairing", "compute_day", "PairingPolicy("):
+        callers = [
+            str(path.relative_to(ROOT))
+            for path in ui_root.rglob("*.py")
+            if name in path.read_text()
+        ]
+        assert not callers, f"{name} called in {callers}"
+    metadata = (ui_root / "pyproject.toml").read_text()
+    assert not [
+        line for line in metadata.splitlines() if "argus-payroll" in line and "#" not in line
+    ]
+
+
+def test_nothing_auto_dismisses_a_review() -> None:
+    """The queue is the product; an empty queue is not a success metric
+    (AGENTS.md §9). So there is no code path that clears one without a human."""
+    offenders = []
+    for path in _py_files():
+        relative = str(path.relative_to(ROOT))
+        if relative.startswith("tests/"):
+            continue
+        text = path.read_text().lower()
+        if "auto_dismiss" in text or "auto-dismiss" in text or "autodismiss" in text:
+            offenders.append(relative)
+    assert not offenders, f"auto-dismissal appears in {offenders}"
+
+
+def test_there_is_no_export_anywhere() -> None:
+    """tests/payroll/test_no_export.py guards one package; the risk is now
+    spread across five services, so this guards the tree.
+
+    Turning on payroll export is an AGENTS.md §2.1 human sign-off, an ADR, and a
+    migration -- not a module somebody adds.
+    """
+    modules = [
+        str(path.relative_to(ROOT))
+        for path in (ROOT / "services").rglob("*.py")
+        if path.stem.startswith("export")
+    ]
+    assert not modules, f"export modules: {modules}"
+    routes = []
+    for path in (ROOT / "services" / "ui").rglob("*.py"):
+        text = path.read_text()
+        for marker in ('@app.get("/export', '@app.post("/export', '@app.get("/download'):
+            if marker in text:
+                routes.append(str(path.relative_to(ROOT)))
+    assert not routes, f"export routes: {routes}"
+    writers = [
+        str(path.relative_to(ROOT))
+        for path in (ROOT / "services").rglob("*.py")
+        if "csv.writer" in path.read_text() or "to_csv" in path.read_text()
+    ]
+    assert not writers, f"CSV writers: {writers}"

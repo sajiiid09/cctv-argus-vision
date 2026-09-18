@@ -31,6 +31,8 @@ from argus.ingest.streams import RTSPSource  # noqa: E402
 from argus.store.db import Database, apply_migrations  # noqa: E402
 from argus.store.store import Store  # noqa: E402
 
+from helpers import insert_person  # noqa: E402
+
 
 def _default_dsn() -> str:
     return os.environ.get(
@@ -189,27 +191,6 @@ def make_door_camera(camera_id: str = "canteen_door_01", uri: str | None = None)
         source_uri=uri or f"rtsp://localhost:8554/{camera_id}",
         is_virtual=True,
     )
-
-
-async def insert_person(
-    db,
-    person_id: str = "p1",
-    *,
-    employee_ref: str | None = None,
-    active_from: str = "2026-01-01",
-) -> str:
-    """A roster row, because doorway_event.person_id is a real foreign key.
-
-    Evidence attributed to a person_id that is not on the roster is invisible in
-    a report and impossible to dispute, so the database refuses it (0004).
-    Unknown stays expressible as null.
-    """
-    await db.execute(
-        "insert into person (person_id, employee_ref, active_from) values (%s, %s, %s)"
-        " on conflict (person_id) do nothing",
-        (person_id, employee_ref or f"hr-{person_id}", active_from),
-    )
-    return person_id
 
 
 @pytest.fixture

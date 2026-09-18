@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Review queue</h2>
+<p>
+  {{ counts['pending'] }} pending · {{ counts['dismissed'] }} dismissed ·
+  {{ counts['escalated'] }} escalated
+</p>
+<p class="muted">
+  A candidate is a clip for a human to watch. It is never a verdict, never a
+  name, and nothing here dismisses itself (ADR-0012).
+</p>
+{% if candidates %}
+  <table>
+    <tr><th>When</th><th>Camera</th><th>Trigger</th><th>Clip</th><th>Decide</th></tr>
+    {% for candidate in candidates %}
+      <tr>
+        <td>{{ candidate.at }}</td>
+        <td>{{ candidate.camera_id }}</td>
+        <td>{{ '%.2f' % candidate.trigger_score }}</td>
+        <td>
+          {% if candidate.clip_id %}
+            <a href="/clip/{{ candidate.clip_id }}">watch</a>
+          {% else %}<span class="flagged">no clip</span>{% endif %}
+        </td>
+        <td>
+          <form class="inline" method="post" action="/violence/{{ candidate.candidate_id }}/review">
+            <input type="hidden" name="decision" value="dismissed">
+            <input name="reason" placeholder="why" size="18">
+            <button>Dismiss</button>
+          </form>
+          <form class="inline" method="post" action="/violence/{{ candidate.candidate_id }}/review">
+            <input type="hidden" name="decision" value="escalated">
+            <button>Escalate</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+  </table>
+{% else %}
+  <p>
+    Nothing pending. <span class="muted">
+      No violence pipeline is running yet, so this queue is empty because nothing
+      produces candidates — not because nothing happened.
+    </span>
+  </p>
+{% endif %}
+{% endblock %}

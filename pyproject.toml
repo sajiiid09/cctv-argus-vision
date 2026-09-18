@@ -31,6 +31,10 @@ dev = [
     "mypy>=1.13",
     "types-pyyaml>=6",
     "hypothesis>=6.100",
+    # ASGI test client for the console's route tests: they run against the app
+    # in-process, with the data layer faked, so they need no database. httpx2 is
+    # what current starlette wants; httpx alone warns on every import.
+    "httpx2>=0.28",
 ]
 # CPU inference: dev boxes, the GPU-less Linux box, and CI.
 cpu = [
@@ -68,6 +72,10 @@ ignore = ["SIM108"]
 # rig scripts are run as files with an explicit sys.path bootstrap; isort would
 # rewrite their sibling imports into non-runnable package paths
 "rig/bin/*" = ["I001"]
+# FastAPI's dependency injection is expressed as `Depends(...)` in a parameter
+# default, which is exactly what B008 exists to catch in ordinary code. Ignored
+# only here, where it is the framework's documented spelling.
+"services/ui/src/argus/ui/app.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -83,6 +91,7 @@ mypy_path = [
     "services/pairing/src",
     "services/enrol/src",
     "services/gate/src",
+    "services/ui/src",
 ]
 disallow_untyped_defs = true
 no_implicit_optional = true

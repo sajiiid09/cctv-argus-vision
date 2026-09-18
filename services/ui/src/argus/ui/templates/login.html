@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Log in — Sparrow Vision{% endblock %}
+{% block content %}
+<h2>Log in</h2>
+{% if not configured %}
+  <p class="flagged">
+    No role passphrases are configured, so nobody can log in. Set them in
+    <code>config/secrets.env</code> (mode 600) as <code>UI_VIEWER_PASSPHRASE</code>
+    and friends.
+  </p>
+{% endif %}
+{% if error %}<p class="flagged">{{ error }}</p>{% endif %}
+<form method="post" action="/login">
+  <p>
+    <label>Your name<br>
+      <input name="actor_name" required autocomplete="off">
+    </label>
+  </p>
+  <p>
+    <label>Role passphrase<br>
+      <input name="passphrase" type="password" required>
+    </label>
+  </p>
+  <button>Log in</button>
+</form>
+<p class="muted">
+  This authenticates a <em>role</em>, not a person: the name above is typed by
+  whoever is sitting here and is recorded as given (ADR-0028). Every clip view
+  is logged either way.
+</p>
+{% endblock %}

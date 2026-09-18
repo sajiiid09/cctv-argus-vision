@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Today</h2>
+{% if run %}
+  <div class="shadow">
+    <strong>Shadow mode.</strong> Computed and reported only; nothing reaches payroll.<br>
+    {{ run.policy_description }}<br>
+    <span class="muted">
+      logic {{ run.logic_version }} · policy <code>{{ run.policy_fingerprint }}</code> ·
+      computed {{ run.computed_at }} · run <code>{{ run.pairing_run_id }}</code>
+    </span>
+  </div>
+{% else %}
+  <p class="muted">No pairing run has been computed yet.</p>
+{% endif %}
+<h3>Gate outcomes</h3>
+<table>
+  <tr><th>Matched</th><th>Different face</th><th>No face</th><th>Not attempted</th></tr>
+  <tr>
+    <td>{{ gate['true'] }}</td>
+    <td class="{{ 'flagged' if gate['false'] else '' }}">{{ gate['false'] }}</td>
+    <td>{{ gate['no_face'] }}</td>
+    <td>{{ gate['not_attempted'] }}</td>
+  </tr>
+</table>
+<h3>Review queue</h3>
+<p>
+  {{ violence['pending'] }} pending, {{ violence['dismissed'] }} dismissed,
+  {{ violence['escalated'] }} escalated.
+  <span class="muted">An empty queue is not a success metric.</span>
+</p>
+{% endblock %}

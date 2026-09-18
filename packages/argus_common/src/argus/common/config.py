@@ -156,6 +156,39 @@ class IngestConfig:
 
 
 @dataclass(slots=True)
+class UiConfig:
+    """The operator console (ADR-0028).
+
+    Bound to localhost, because the console authenticates a *role* and not a
+    person. Binding it anywhere else needs `acknowledged_lan_exposure` set
+    deliberately -- and a new ADR, since it changes who can reach a page full of
+    clips.
+    """
+
+    bind_host: str = "127.0.0.1"
+    port: int = 8080
+    session_ttl_minutes: int = 120
+    clip_access_dedupe_s: int = 60
+    acknowledged_lan_exposure: bool = False
+    # Filled from config/secrets.env via ${VAR} expansion, never written in YAML.
+    role_passphrases: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        local = {"127.0.0.1", "localhost", "::1"}
+        if self.bind_host not in local and not self.acknowledged_lan_exposure:
+            raise ConfigError(
+                f"ui.bind_host is {self.bind_host!r}, which is not localhost. The console "
+                "authenticates a role, not a person (ADR-0028): exposing it needs "
+                "ui.acknowledged_lan_exposure set deliberately and an ADR to say why."
+            )
+        if self.session_ttl_minutes <= 0:
+            raise ConfigError("ui.session_ttl_minutes must be positive")
+        unknown = sorted(set(self.role_passphrases) - {"viewer", "reviewer", "payroll", "admin"})
+        if unknown:
+            raise ConfigError(f"ui.role_passphrases has unknown roles: {unknown}")
+
+
+@dataclass(slots=True)
 class GateConfig:
     """The badge reader, and how long we wait for a face after a tap.
 
@@ -363,6 +396,7 @@ class AppConfig:
     payroll: PayrollConfig = field(default_factory=PayrollConfig)
     face: FaceConfig = field(default_factory=FaceConfig)
     gate: GateConfig = field(default_factory=GateConfig)
+    ui: UiConfig = field(default_factory=UiConfig)
     cameras: list[CameraConfig] = field(default_factory=list)
 
 
@@ -375,6 +409,7 @@ _NESTED: dict[type, dict[str, type[Any]]] = {
         "payroll": PayrollConfig,
         "face": FaceConfig,
         "gate": GateConfig,
+        "ui": UiConfig,
     },
     IngestConfig: {
         "reconnect": ReconnectConfig,
@@ -446,6 +481,7 @@ def load_config(path: str | Path) -> AppConfig:
             payroll=PayrollConfig(**raw.get("payroll", {})),
             face=FaceConfig(**raw.get("face", {})),
             gate=GateConfig(**raw.get("gate", {})),
+            ui=UiConfig(**raw.get("ui", {})),
             cameras=cameras,
         )
     except TypeError as e:

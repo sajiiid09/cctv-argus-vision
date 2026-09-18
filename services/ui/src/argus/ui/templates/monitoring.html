@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Monitoring</h2>
+<h3>Unknown faces per door</h3>
+<table>
+  <tr><th>Door</th><th>Unknown</th><th>Total</th><th>Share</th></tr>
+  {% for row in metrics.unknown_by_door %}
+    <tr>
+      <td>{{ row.door_id or '—' }}</td><td>{{ row.unknown }}</td><td>{{ row.total }}</td>
+      <td>{{ '%.0f%%' % (100.0 * row.unknown / row.total) if row.total else '—' }}</td>
+    </tr>
+  {% endfor %}
+</table>
+<p class="muted">
+  Rising unknowns mean the door has stopped identifying people. Deductions do
+  not rise with it — unknown fails open — so this is a capture problem.
+</p>
+<h3>Stream-gap minutes</h3>
+<table>
+  <tr><th>Camera</th><th>Cause</th><th>Minutes</th></tr>
+  {% for row in metrics.gap_minutes %}
+    <tr><td>{{ row.camera_id }}</td><td>{{ row.cause }}</td><td>{{ row.minutes }}</td></tr>
+  {% endfor %}
+</table>
+<h3>Days and charges (today)</h3>
+<p>
+  {{ metrics.flagged.flagged }} of {{ metrics.flagged.days }} days flagged;
+  {{ metrics.flagged.overage_s | humanise }} of overage in total.
+</p>
+<h3>Clip access</h3>
+<table>
+  <tr><th>Actor</th><th>Outcome</th><th>Views</th></tr>
+  {% for row in metrics.clip_access %}
+    <tr><td>{{ row.actor }}</td><td>{{ row.outcome }}</td><td>{{ row.count }}</td></tr>
+  {% endfor %}
+</table>
+<h3>Review latency</h3>
+<table>
+  <tr><th>Decision</th><th>Count</th><th>Mean seconds</th></tr>
+  {% for row in metrics.review_latency %}
+    <tr><td>{{ row.state }}</td><td>{{ row.count }}</td><td>{{ row.mean_s }}</td></tr>
+  {% endfor %}
+</table>
+<p class="muted">
+  Near-zero review latency means rubber-stamping rather than diligence, which is
+  why it is on the page.
+</p>
+{% endblock %}
