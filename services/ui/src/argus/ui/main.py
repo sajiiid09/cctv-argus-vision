@@ -10,22 +10,13 @@ role rather than a person.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import logging
 import sys
 
-from argus.common.config import AppConfig, ConfigError, load_config
-from argus.store.db import Database, apply_migrations
+from argus.common.config import ConfigError, load_config
 from argus.ui.app import create_app
-from fastapi import FastAPI
 
 log = logging.getLogger("argus.ui")
-
-
-async def _build(config: AppConfig) -> tuple[FastAPI, Database]:
-    db = await Database.connect(config.database.dsn)
-    await apply_migrations(db)
-    return create_app(config, db), db
 
 
 def main() -> None:
@@ -36,14 +27,18 @@ def main() -> None:
     logging.basicConfig(
         level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s"
     )
-    config = load_config(args.config)
     try:
-        app, _db = asyncio.get_event_loop().run_until_complete(_build(config))
+        config = load_config(args.config)
     except ConfigError as exc:
         log.error("configuration problem: %s", exc)
         sys.exit(2)
 
     import uvicorn
+
+    # The database connection is opened in the app's lifespan, inside uvicorn's
+    # own event loop. A connection made out here would belong to a loop uvicorn
+    # never runs.
+    app = create_app(config)
 
     if not config.ui.role_passphrases:
         log.warning(

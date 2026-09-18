@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
 from argus.common.config import AppConfig
-from argus.store.db import Database
+from argus.store.db import Database, apply_migrations
 from argus.ui import queries
 from argus.ui.audit import log_clip_access
 from argus.ui.auth import (
@@ -46,9 +48,33 @@ def humanise(seconds: int | None) -> str:
     return f"{seconds // 60}m {seconds % 60}s"
 
 
-def create_app(config: AppConfig, db: Database, *, data: Any = queries) -> FastAPI:
-    """`data` is the seam the route tests fake, which keeps them database-free."""
-    app = FastAPI(title="Sparrow Vision console", docs_url=None, redoc_url=None)
+def create_app(
+    config: AppConfig, db: Database | None = None, *, data: Any = queries
+) -> FastAPI:
+    """`data` is the seam the route tests fake, which keeps them database-free.
+
+    With no `db`, the connection is opened in the **lifespan**, which is the
+    only place it can be: a psycopg connection belongs to the event loop that
+    created it, and uvicorn runs its own. Connecting at import time and handing
+    the result to uvicorn produces a connection bound to a loop that no longer
+    exists, which fails on the first query rather than at startup.
+    """
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        owned = app.state.db is None
+        if owned:
+            app.state.db = await Database.connect(config.database.dsn)
+            await apply_migrations(app.state.db)
+        try:
+            yield
+        finally:
+            if owned and app.state.db is not None:
+                await app.state.db.close()
+
+    app = FastAPI(
+        title="Sparrow Vision console", docs_url=None, redoc_url=None, lifespan=lifespan
+    )
     app.state.config = config
     app.state.db = db
     app.state.data = data
