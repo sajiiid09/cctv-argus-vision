@@ -408,7 +408,7 @@ yields a runnable-but-backendless tree. Accepted per the leaning below; no new
 evidence had arrived.
 
 ## ADR-0019 — Occupancy granularity: per-operator or line-level only
-Date: 2026-09-13 · Status: **OPEN**
+Date: 2026-09-13 · Accepted 2026-09-18 · Status: **ACCEPTED** (option c)
 
 **Context.** Seats are assigned, so per-seat occupancy is effectively
 per-operator even though we store no `person_id`. That is a privacy fact the
@@ -417,14 +417,30 @@ schema does not express.
 **Options.** (a) Line-level aggregate only. (b) Per-seat stored, per-seat shown.
 (c) Per-seat stored, aggregate shown, per-seat behind a higher access tier.
 
-**Leaning:** (c). It preserves the diagnostic value (which station on which line
-is idle) while keeping the re-identifiable view behind an access control, and it
-matches the honest position that per-seat data is closer to identified data than
-its schema suggests. `SOUL.md` and ADR-0003 mean none of these can touch pay.
+**Decision.** (c). `occupancy_sample` carries `seat_id` and `line_id`. Default
+and management views show line-level rates; the per-seat view sits behind the
+admin tier and is access-logged like a clip.
+
+**Reasoning.** (a) throws away the only diagnostic the pipeline exists to
+produce — which station on which line is idle — and would be re-derived by
+someone with SQL access anyway, unlogged. (b) publishes a view that is
+effectively per-operator to anyone who opens the dashboard, which is how an
+anonymous measure becomes a disciplinary one without anybody deciding to make it
+so. (c) keeps the diagnostic and puts the re-identifiable reading behind a
+control and an audit trail, which is the honest position: per-seat data is closer
+to identified data than its schema suggests.
 
 **Changes it.** A management requirement for per-operator reporting — which would
 need an explicit argument about what it is for, since the answer is usually
 discipline.
+
+**Consequences.** `occupancy_sample` has no `person_id` and no foreign key that
+could acquire one, enforced by a structural test that parses the schema text
+rather than by care. None of it may touch pay (ADR-0003, `SOUL.md` "two separate
+numbers"), and a test asserts no occupancy code path reaches a payroll table.
+Creating that join path — in code or in a migration — is an `AGENTS.md` §2.3
+human sign-off, not a refactor. Per-seat access is logged with an actor, so
+"who looked at which operator's station" is an answerable question.
 
 ## ADR-0020 — Production hardware
 Date: 2026-09-13 · Status: **OPEN**
@@ -456,7 +472,7 @@ factory with unstable mains to be worth measuring), or throughput that CUDA EP
 cannot meet.
 
 ## ADR-0022 — macOS leg of the parity suite in CI
-Date: 2026-09-13 · Status: **OPEN**
+Date: 2026-09-13 · Accepted 2026-09-18 · Status: **ACCEPTED** (option b)
 
 **Context.** Hosted macOS runners generally do not expose the GPU usefully, so
 the CoreML side of the golden-frame suite has no obvious CI home.
@@ -465,8 +481,33 @@ the CoreML side of the golden-frame suite has no obvious CI home.
 demand, record results, do not gate merges. (c) Do not test the CoreML path
 numerically at all.
 
-**Leaning:** (b) initially, (a) if divergence bites. (c) is not acceptable —
-it removes the only evidence that dev and prod agree.
+**Decision.** (b), with (a) held in reserve. The command is
+
+```bash
+ARGUS_PARITY_BACKEND=onnx-coreml uv run pytest -m golden
+```
+
+and its result is recorded in the commit message of whatever change prompted it,
+or in a dated note under `tests/golden/`. Merges are gated on the Linux CPU leg
+only.
+
+**Reasoning.** We do not own a Mac we can leave plugged in as a runner, and
+buying one to gate a dev-platform-only regression is the wrong order of spend
+while the production box is still unbought (ADR-0020). (c) is refused: it removes
+the only evidence that dev and prod agree, which is the entire point of the
+suite.
+
+**Changes it.** A CoreML divergence that costs real debugging time, or anyone
+outside the immediate team developing on a Mac. Either makes (a) the answer and
+supersedes this.
+
+**Consequences.** A CoreML-only regression can land and will be found late. That
+is the accepted cost, and it is survivable for two reasons: macOS proves logic
+while Linux is the arbiter (`AGENTS.md` §6), and every backend construction
+already logs `backend=… model=…`, so "which backend produced this number" is
+answerable from a log rather than from memory. Tolerances are recorded in the
+reference files, not remembered, so a later run on a different Mac compares
+against something written down.
 
 ## ADR-0023 — Partial-day charging when one interval is flagged
 Date: 2026-09-13 · Accepted 2026-09-17 · Status: **ACCEPTED** (option a)
@@ -595,7 +636,7 @@ is the easy mistake. Template encryption at rest remains unbuilt and is named in
 `RISKS.md` §2.
 
 ## ADR-0028 — UI access control for the demo
-Date: 2026-09-17 · Status: **OPEN**
+Date: 2026-09-17 · Accepted 2026-09-18 · Status: **ACCEPTED** (option a)
 
 **Context.** `RISKS.md` §10 defines four access tiers — viewer, reviewer,
 payroll, admin — and `RISKS.md` §5 names casual clip browsing as
@@ -605,17 +646,47 @@ per-person authentication does not fit the demo window.
 **Options.** (a) Per-role passphrase plus a typed actor name, bound to localhost.
 (b) Real per-person accounts with hashed credentials. (c) No authentication.
 
-**Leaning:** (a), with the limitation written down rather than glossed: it
+**Decision.** (a), with the limitation written down rather than glossed: it
 authenticates a *role*, not a *person*, and the actor name in the audit log is
-self-asserted. (c) is refused outright — an unaudited clip-viewing path
-contradicts the premise of the system (`ARCHITECTURE.md` §8).
+self-asserted. Passphrases come from `config/secrets.env` (mode 600), never from
+YAML and never from git. The console binds `127.0.0.1`; binding it anywhere else
+requires an explicit acknowledgement in config *and* supersedes this ADR.
+(c) is refused outright — an unaudited clip-viewing path contradicts the premise
+of the system (`ARCHITECTURE.md` §8).
+
+**Clip access by tier.** `reviewer` and `admin` may open any clip. `payroll` may
+open a clip **only when it is referenced by a `dwell_interval` in a
+`pairing_run`**, logged with `context='canteen_audit'`. `viewer` may open none.
+The payroll grant is scoped by the clip's relationship to the line being
+disputed, not by the role alone, which is what lets `RISKS.md` §10 ("the payroll
+tier cannot browse clips freely") and `SOUL.md` ("every payroll-affecting record
+resolves to a clip in minutes") both hold. A one-person audit path matters: a
+rule that needs a second person to fetch the video is a rule that gets bypassed
+by sharing a passphrase.
 
 **What is built regardless of this ADR:** every clip view writes a
-`clip_access_log` row with actor, role, context and reason. The audit log is the
-only control that touches the voyeurism threat, and it does not depend on the
-authentication being good.
+`clip_access_log` row with actor, role, context and reason — **including denied
+attempts**, written before the response. The audit log is the only control that
+touches the voyeurism threat, and it does not depend on the authentication being
+good.
+
+**Reasoning.** (b) is the right answer and does not fit the window: real accounts
+mean credential storage, reset, and a user table that outlives the demo. (a)
+costs one module and is honest about what it is. The deciding factor is that the
+control which actually addresses the threat — logging every view, including the
+refused ones — is independent of how good the authentication is, so weak
+authentication does not leave the threat unaddressed, only the attribution weak.
 
 **Changes it.** Anyone outside the immediate team getting access; the pilot.
+
+**Consequences.** The `clip_access_log` actor is self-asserted and a determined
+user can type a colleague's name, so the log is evidence of what a *role* did and
+must never be described as per-person accountability — not on a slide, not to an
+auditor. All authentication lives in one module — `argus.ui.auth` — where routes
+receive an `Actor` and never read the cookie, so replacing this with option (b)
+is a rewrite of that file rather than of every route. Real
+per-person accounts remain a prerequisite for the pilot and for anyone outside
+the immediate team.
 
 ## ADR-0029 — PTZ cameras are used at fixed presets, with a drift check
 Date: 2026-09-17 · Status: **ACCEPTED**
@@ -727,3 +798,84 @@ request. The two-stream choice assumes cameras accept two concurrent RTSP
 clients; if one refuses, it falls back to a single main-stream connection with
 sampled decode and downscale (`RISKS.md` §6 names client-limit exhaustion
 as a real failure).
+
+## ADR-0032 — `doorway_event` deduplication points backwards, via `duplicate_of`
+Date: 2026-09-18 · Status: **ACCEPTED** · Payroll-affecting
+
+**Context.** `ARCHITECTURE.md` §7.3 says duplicate crossings deduplicate to the
+earliest row, and that the *later* row carries a pointer back at the survivor.
+`0001_init.sql` instead gave `doorway_event` a `superseded_by` column, which
+reads the other way round, and `argus.payroll.types.DoorEvent` already declares
+`duplicate_of` with a docstring explaining why that name and not `supersedes`.
+Worse, `superseded_by` is unwritable: the append-only trigger rejects every
+`UPDATE`, so the earlier row can never be marked after the fact, which is the
+only way a "points forward" column could ever be filled.
+
+**Options.** (a) Keep `superseded_by` and have the pairing loader invert it.
+(b) Add `duplicate_of` on the later row, drop `superseded_by`, and set it at
+insert time. (c) Keep both and write whichever the caller prefers.
+
+**Decision.** (b). Migration `0002_doorway_dedup.sql` adds `duplicate_of uuid
+references doorway_event(event_id)`, a CHECK refusing self-reference, a partial
+index, and a `before insert` trigger refusing a target whose `ts_utc` is *newer*
+than the inserted row. `superseded_by` is dropped. `argus.store` renames the
+field in lockstep. `argus.payroll` needs no change — it was already written this
+way.
+
+**Reasoning.** (a) puts a semantic inversion in a loader, and inverting this one
+means pairing keeps the *later*, worse estimate of when a crossing happened,
+which silently moves a dwell interval and therefore a deduction. (c) guarantees
+the two columns disagree eventually. (b) makes the direction a database fact:
+the trigger means "the earliest wins" cannot be violated by a future writer that
+did not read this ADR. The first detection is kept because it is the better
+estimate of when the person actually crossed.
+
+**Changes it.** Evidence that the first detection is systematically worse than a
+later one — for example a detector that fires early on a partially occluded
+person. That would be an accuracy finding from real footage, not a desk
+argument, and it would need this ADR superseded rather than the column reused.
+
+**Consequences.** The pointer is written once, at insert, by the one place that
+emits doorway events; nothing edits it afterwards, because nothing can. A
+migration is the only way to change the direction again. `0001` stays untouched
+and hash-pinned, so this lands additively as `0002`.
+
+## ADR-0033 — Canteen analysis runs inside the ingest process
+Date: 2026-09-18 · Status: **ACCEPTED**
+
+**Context.** `ARCHITECTURE.md` §3 draws analysis as its own process family
+alongside ingest. Two constraints collide with that: frames never travel over
+the bus (ADR-0013, Postgres is the bus), and each camera is already opened twice
+(ADR-0031: main for evidence packets, substream for sampled decode). A separate
+analysis process would need its own RTSP connection, making three per camera
+against a client limit `RISKS.md` §6 names as a real failure mode and which
+nobody has measured on the actual cameras yet.
+
+**Options.** (a) Separate analysis process, third RTSP client per camera.
+(b) Analysis inside the ingest process, subscribing to the decoded tap that
+already exists. (c) Shared memory or a local socket between two processes.
+
+**Decision.** (b). Pipelines attach as ordinary `subscribe()` consumers of
+`RTSPSource`'s bounded decoded queue, in the ingest process. The `pipelines`
+config section defaults to **off**, so a box with no model artefacts runs ingest
+exactly as before.
+
+**Reasoning.** (a) spends the scarcest resource we have not measured. (c) is
+real engineering — frame serialisation, lifetime, backpressure across a process
+boundary — for a benefit (isolation) that a supervised task inside one process
+mostly provides, and it would be the second bus in a system whose whole storage
+design is "there is one bus and frames do not travel on it".
+
+**Changes it.** Measured evidence that the cameras accept a third concurrent
+client comfortably, or an analysis crash rate high enough that taking ingest
+down with it costs evidence. Either makes (a) worth its cost.
+
+**Consequences.** A crash in analysis can take ingest down with it, so each
+pipeline runs as a supervised task: an exception opens a `stream_gap` for that
+camera, the task restarts with backoff, and the gap closes when events flow
+again — a pipeline that stops analysing is never silent. CPU contention between
+decode and inference now lives in one process and one GIL, which makes
+`analysis_fps` a real budget rather than a knob; the per-session thread in
+`argus.pipelines.runtime` exists for this reason. The M1 exit criterion "runs in
+containers with GPU decode" stays open and is *not* closed by this decision — a
+successful demo must not be allowed to quietly close it.

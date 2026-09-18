@@ -188,7 +188,9 @@ Deleting a leaver's evidence early protects nobody.
 Two operations sit above the tiers and need named human authorisation:
 **enrolment** and **the shadow-mode flag**.
 
-Tiers are **unbuilt as of 2026-09-17** (ADR-0028). Clip-access logging is built
+Tiers are **unbuilt as of 2026-09-18**; ADR-0028 settles their shape (per-role
+passphrase, typed actor, localhost-bound; `payroll` reaches a clip only through
+the line that references it). Clip-access logging is built
 regardless, because it is the control that touches the voyeurism threat and it
 does not depend on the authentication being good.
 

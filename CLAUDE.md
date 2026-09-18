@@ -22,7 +22,7 @@ but nothing produces doorway events yet, so it runs on no real data.
 
 This deployment is a **personal, non-commercial test environment**: ADR-0030
 permits AGPL and research-only model weights on that basis and records the
-commercial boundary. Open ADRs: 0019, 0020, 0021, 0022, 0028.
+commercial boundary. Open ADRs: 0020, 0021 (both blocked on the M8 site survey).
 
 ## The one thing to get right
 

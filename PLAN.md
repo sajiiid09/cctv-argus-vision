@@ -70,7 +70,8 @@ box exists and is usable, in week two rather than week eight.
 modules, sha256-verified ONNX artefact mechanism (ADR-0026), committed golden
 frames + reference outputs, tolerance suite, and the import-graph structural
 check — all in CI (ADR-0025). **Verified legs:** CPU reference (Linux box + CI).
-**Pending:** CUDA leg on staging, CoreML leg on the Mac (ADR-0022). ADR-0011
+**Pending:** CUDA leg on staging, CoreML leg on the Mac (ADR-0022: on demand,
+not gating merges). ADR-0011
 closed: permissively licensed models only; bring-up artefact is Apache-2.0
 `ssd_mobilenet_v1`.
 
@@ -166,7 +167,8 @@ defined seat regions.
 - Occupancy sampled on a slow cadence (seconds, not frames), smoothed to avoid
   flapping on a person leaning out of frame.
 - Storage carries no `person_id` and no join path to one.
-- Dashboard shows line-level and (if ADR-0019 lands that way) per-seat rates.
+- Dashboard shows line-level rates, with per-seat behind the admin tier and
+  access-logged (ADR-0019).
 - A test asserts that no occupancy code path can reach a payroll table.
 
 **De-risks.** Comparatively little — this milestone is here because it is a

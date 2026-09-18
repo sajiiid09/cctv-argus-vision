@@ -186,7 +186,8 @@ rather than carried over:
 | Clip classifier scores | ±0.10, identical top-1 | Output goes to a human queue, so ranking matters more than calibration |
 
 Select a non-default leg with `ARGUS_PARITY_BACKEND`. The CUDA leg and the macOS
-CoreML leg (ADR-0022, **OPEN**) are both unrun.
+CoreML leg (ADR-0022: run on a dev Mac on demand, not in CI) are both
+unrun.
 
 ### 5.4 What runs in containers
 
