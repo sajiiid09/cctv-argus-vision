@@ -109,9 +109,7 @@ class FloorRunner:
             self.metrics.incr(m.FRAMES_DROPPED, camera_id=self.camera.camera_id)
             return
         people = [d for d in detections if d.label in ("person", "disk")]
-        observations = self.occupancy.observe(
-            frame.ts_server, people, frame.image.shape[:2]
-        )
+        observations = self.occupancy.observe(frame.ts_server, people, frame.image.shape[:2])
         for row in self.occupancy.rows(observations):
             await self.db.execute(INSERT_SAMPLE, row)
         self.samples_written += len(observations)

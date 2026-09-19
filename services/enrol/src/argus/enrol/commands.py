@@ -93,9 +93,7 @@ async def consent_record(
     dry_run: bool,
 ) -> Report:
     report = Report()
-    report.say(
-        f"record consent for {person_id}: {purpose}, {granted_on} to {expires_on}, by {by}"
-    )
+    report.say(f"record consent for {person_id}: {purpose}, {granted_on} to {expires_on}, by {by}")
     if dry_run:
         report.say("--dry-run: nothing written")
         return report
@@ -321,9 +319,7 @@ async def list_people(
     return report
 
 
-async def purge_expired(
-    db: Database, *, root: Path, today: date, by: str, dry_run: bool
-) -> Report:
+async def purge_expired(db: Database, *, root: Path, today: date, by: str, dry_run: bool) -> Report:
     """Delete templates AND images for expired or withdrawn consent, together.
 
     ADR-0027 names the easy mistake: removing the video and leaving the
