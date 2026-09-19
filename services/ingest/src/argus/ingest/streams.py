@@ -30,6 +30,7 @@ from argus.ingest.ringbuffer import (
     PacketRingBuffer,
     RingBuffer,
 )
+from av.codec.hwaccel import HWAccel, hwdevices_available
 
 log = logging.getLogger(__name__)
 
@@ -98,6 +99,34 @@ class _Stop(Exception):
     pass
 
 
+# decode mode -> the libav hardware device that serves it. `software` is not in
+# here because it is the absence of one.
+HWACCEL_DEVICE = {"nvidia": "cuda"}
+
+
+def hwaccel_device(decode: str, available: list[str] | None = None) -> str | None:
+    """The hardware device to decode with, or None for software.
+
+    Hardware decode lives or dies on how *this* ffmpeg was built, never on what
+    the box contains: a pip-installed PyAV wheel commonly ships without NVDEC
+    even on a machine with four GPUs (ARCHITECTURE.md §5.5). So the question
+    asked here is `hwdevices_available()` -- the devices this libav was compiled
+    with -- and the answer is decided once, at startup, rather than being
+    guessed per reconnect.
+
+    Returning None for a configured accelerator is a fallback, and the caller
+    says so at ERROR level. Silence would leave `decode: nvidia` in the config
+    describing something that never happened.
+    """
+    device = HWACCEL_DEVICE.get(decode)
+    if device is None:
+        return None
+    devices = hwdevices_available() if available is None else available
+    if device not in devices:
+        return None
+    return device
+
+
 def _codec_params(video: Any) -> CodecParams:
     """Snapshot what a muxer needs, at session open.
 
@@ -135,6 +164,23 @@ class RTSPSource:
         self.status = SourceStatus(camera_id=camera.camera_id)
         self._analysis_fps = cfg.fps_for(camera)
         self._last_decode_mono: float | None = None
+        # Decided once per process, not per reconnect: a device that is absent
+        # from this build will be absent from the next attempt too, and a
+        # per-attempt probe would print the same error every backoff.
+        self._hwaccel_device = hwaccel_device(cfg.decode)
+        if cfg.decode != "software" and self._hwaccel_device is None:
+            log.error(
+                "camera %s: ingest.decode=%r but this libav build offers %s -- "
+                "decoding in SOFTWARE. Hardware decode needs an ffmpeg/PyAV built "
+                "with that device (ARCHITECTURE.md §5.5); the pip wheel usually is "
+                'not. Check with: python -c "from av.codec.hwaccel import '
+                'hwdevices_available as h; print(h())"',
+                camera.camera_id,
+                cfg.decode,
+                hwdevices_available() or "no hardware devices",
+            )
+        elif self._hwaccel_device is not None:
+            log.info("camera %s: hardware decode via %s", camera.camera_id, self._hwaccel_device)
         self._subscribers: list[asyncio.Queue[Frame]] = []
         self._packet_subscribers: list[asyncio.Queue[PacketRecord]] = []
         # The live input stream, kept only while a session is open. Remuxing a
@@ -341,13 +387,40 @@ class RTSPSource:
         read_timeout_s = max(0.5, self.cfg.stall_timeout_s / 2)
         timeout_us = int(read_timeout_s * 1_000_000)
         options: dict[str, str] = {"rtsp_transport": "tcp", "timeout": str(timeout_us)}
-        # decode mode 'nvidia' asks ffmpeg for NVDEC; if the box has no NVIDIA
-        # decoder the open/read fails and the caller falls back on reconnect to
-        # software below. UNVERIFIED until exercised on the staging box (M1 exit).
-        if self.cfg.decode == "nvidia":
-            options["hwaccel"] = "cuda"
+        # `hwaccel` is an ffmpeg COMMAND-LINE flag, not an AVOption: passing it in
+        # `options` is accepted and silently dropped, which is how a box can spend
+        # a week believing it decodes on the GPU. PyAV 18 takes a real HWAccel
+        # object instead, and `allow_software_fallback` keeps one unsupported
+        # stream from killing the camera. UNVERIFIED against NVDEC until the
+        # NVIDIA box runs it (M1 exit).
+        hwaccel = (
+            HWAccel(device_type=self._hwaccel_device, allow_software_fallback=True)
+            if self._hwaccel_device is not None
+            else None
+        )
 
-        container = av.open(self.camera.source_uri, options=options, timeout=read_timeout_s)
+        try:
+            container = av.open(
+                self.camera.source_uri,
+                options=options,
+                timeout=read_timeout_s,
+                hwaccel=hwaccel,
+            )
+        except Exception:
+            if hwaccel is None:
+                raise
+            # The build has the device; this machine could not initialise it (no
+            # driver, no free GPU memory, a codec the device does not cover).
+            # Downgrade once, permanently, rather than failing this attempt and
+            # every reconnect after it with the same error.
+            log.exception(
+                "camera %s: opening with %s hardware decode failed -- falling back to "
+                "SOFTWARE decode for the rest of this process",
+                self.camera.camera_id,
+                self._hwaccel_device,
+            )
+            self._hwaccel_device = None
+            container = av.open(self.camera.source_uri, options=options, timeout=read_timeout_s)
         # NOTE: no idle reset here — the idle clock moves only on real frames
         try:
             video = container.streams.video[0]

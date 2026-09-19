@@ -111,6 +111,8 @@ class SsdOnnxDetector:
         self._in_name = self._session.get_inputs()[0].name
         self._out_names = [o.name for o in self._session.get_outputs()]
         self.model_ref = str(self._model_ref)
+        # What the session GOT, which is not always what was asked for.
+        self.providers_active = list(self._session.get_providers())
 
     def _raw_detect(self, frame: np.ndarray) -> Any:
         if frame.ndim != 3 or frame.shape[2] != 3 or frame.dtype != np.uint8:

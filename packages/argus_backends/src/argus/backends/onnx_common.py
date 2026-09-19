@@ -9,6 +9,7 @@ never compare two different model files by accident.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from dataclasses import dataclass
 from functools import lru_cache
@@ -17,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+log = logging.getLogger(__name__)
 
 
 class ModelArtefactError(Exception):
@@ -158,6 +161,42 @@ def check_ort_environment() -> tuple[str, ...]:
     return installed
 
 
+def missing_providers(requested: list[str], active: list[str]) -> list[str]:
+    """Requested accelerators the session did not get.
+
+    The CPU provider is not counted: it is the deliberate last entry of every
+    preference list (``providers_for``), and its absence from a session that got
+    an accelerator is not a downgrade.
+    """
+    return [p for p in requested if p != "CPUExecutionProvider" and p not in active]
+
+
+def log_session_providers(artefact: str, requested: list[str], active: list[str]) -> None:
+    """Log what the session actually got, and shout when it is less.
+
+    onnxruntime lists ``CUDAExecutionProvider`` in ``get_available_providers()``
+    whenever the *gpu* wheel is installed -- even on a box whose CUDA or cuDNN
+    libraries fail to load. In that case the session is created without
+    complaint and silently runs on the CPU. The only evidence is
+    ``session.get_providers()``, so it is logged on every construction: a run
+    that is ten times slower than it should be must say so at startup rather
+    than be discovered while someone times a demo (AGENTS.md §6).
+    """
+    absent = missing_providers(requested, active)
+    if absent:
+        log.error(
+            "artefact=%s requested=%s but the session got %s -- %s did not load. "
+            "This run is NOT accelerated. On the NVIDIA box check the driver, the "
+            "CUDA/cuDNN runtime libraries and that onnxruntime-gpu matches them",
+            artefact,
+            requested,
+            active,
+            absent,
+        )
+    else:
+        log.info("artefact=%s requested=%s active=%s", artefact, requested, active)
+
+
 def load_onnx_session(name: str, providers: list[str]) -> tuple[Any, ModelRef]:
     """Create an onnxruntime InferenceSession over a hash-verified artefact.
 
@@ -170,4 +209,5 @@ def load_onnx_session(name: str, providers: list[str]) -> tuple[Any, ModelRef]:
     entry = registry_entry(name)
     ref = ModelRef(name=name, sha256=entry["sha256"])
     session = ort.InferenceSession(str(path), providers=providers)
+    log_session_providers(name, providers, list(session.get_providers()))
     return session, ref

@@ -96,16 +96,21 @@ def build_canteen_pipelines(
 def _face_stage(config: AppConfig) -> FaceStage | None:
     """Faces are opt-in and, for now, always off.
 
-    Enrolment and a measured threshold both have to exist before identity can
-    mean anything (ADR-0010), and until then every crossing is `unknown` --
-    which is the fail-open outcome, not a missing feature.
+    Enrolment exists (`services/enrol`); what does not exist is a measured
+    threshold and the wiring between the two. Until both land every crossing is
+    `unknown`, which is the fail-open outcome and not a missing feature
+    (ADR-0010).
     """
     if not config.face.enabled:
         return None
     raise NotImplementedError(
-        "face.enabled is true but the enrolment service is not built yet: there "
-        "are no templates to match against, and no measured threshold to match "
-        "at (ADR-0010). Run with face.enabled false until both exist."
+        "face.enabled is true, but the canteen pipeline has no face stage wired "
+        "to it yet. Two things are missing, in this order: a canteen 1:N "
+        "threshold measured from real faces (ADR-0010 forbids a default), and "
+        "the code here that builds a FaceStage from the registry's face "
+        "detector and embedder and hands it the enrolled templates. "
+        "`argus-enrol` already produces those templates. Until then run with "
+        "face.enabled false: every crossing stays unknown, which charges nobody."
     )
 
 

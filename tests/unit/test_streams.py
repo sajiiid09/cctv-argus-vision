@@ -83,3 +83,24 @@ def test_invalid_stall_timeout(bad: float) -> None:
 
     with pytest.raises(ConfigError):
         IngestConfig(stall_timeout_s=bad)
+
+
+def test_software_decode_asks_for_no_hardware_device() -> None:
+    from argus.ingest.streams import hwaccel_device
+
+    assert hwaccel_device("software", available=["cuda", "vaapi"]) is None
+
+
+def test_nvidia_decode_uses_cuda_when_the_build_has_it() -> None:
+    from argus.ingest.streams import hwaccel_device
+
+    assert hwaccel_device("nvidia", available=["cuda"]) == "cuda"
+
+
+def test_nvidia_decode_falls_back_when_the_build_lacks_cuda() -> None:
+    """A pip PyAV wheel commonly has no NVDEC even on a box full of GPUs
+    (ARCHITECTURE.md §5.5). Config asking for it must not become a claim."""
+    from argus.ingest.streams import hwaccel_device
+
+    assert hwaccel_device("nvidia", available=["videotoolbox"]) is None
+    assert hwaccel_device("nvidia", available=[]) is None

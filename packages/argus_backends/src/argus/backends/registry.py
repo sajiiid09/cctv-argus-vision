@@ -110,7 +110,15 @@ class BackendRegistry:
 
     def _construct(self, kind: Kind, name: str) -> Any:
         backend = self._entries[kind][name].factory()
-        log.info("%s backend=%s model=%s", kind, name, backend.model_ref)
+        # `name` is what was ASKED for; providers_active is what the session got.
+        # Logging only the first is how a CPU fallback passes for a GPU run.
+        log.info(
+            "%s backend=%s model=%s providers=%s",
+            kind,
+            name,
+            backend.model_ref,
+            getattr(backend, "providers_active", "n/a"),
+        )
         return backend
 
     # Detector-shaped wrappers kept because the golden parity suite calls them
