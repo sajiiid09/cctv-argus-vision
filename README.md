@@ -55,6 +55,8 @@ re-identification. Identity is resolved **only at doorways** (ADR-0002).
 | Wondering why X was chosen | `DECISIONS.md` |
 | Touching payroll logic | `ARCHITECTURE.md` §7.3, `AGENTS.md` §1–2, §7 |
 | Setting up a machine | `AGENTS.md` §5–6 (macOS leg unverified) |
+| Bringing up the NVIDIA box | `LINUX_SETUP.md` |
+| Installing cameras or the badge reader | `INSTRUCTIONS.md` |
 | Running any of it | `AGENTS.md` §5 — one command per service |
 | Worried about privacy or audits | `RISKS.md` |
 | Planning the next few weeks | `PLAN.md` |
@@ -79,6 +81,14 @@ them; each of these now owns one question and absorbs what used to be scattered.
 - `DECISIONS.md` — ADR log: what is decided, what is open, and why.
 - `PLAN.md` — milestones to demo and pilot; what is blocked on hardware.
 - `GLOSSARY.md` — shared vocabulary.
+
+Two operational runbooks sit beside them. They are procedure, not decisions — each one is a machine or a building being set up, and both
+defer to the six above on anything they appear to contradict.
+
+- `LINUX_SETUP.md` — native bring-up of the NVIDIA box, step by step,
+  through to the demo.
+- `INSTRUCTIONS.md` — putting real cameras and the ZKTeco badge reader on
+  the factory LAN.
 
 ## Environment, in one line
 
