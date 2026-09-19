@@ -1,4 +1,4 @@
-"""argus.payroll -- pairing, dwell and overage (DATA_MODEL.md §4).
+"""argus.payroll -- pairing, dwell and overage (ARCHITECTURE.md §7.3).
 
 Pure functions over stored events: no vision imports, no database, no wall
 clock, all enforced by tests/structural/test_structure.py. Keeping probabilistic

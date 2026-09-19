@@ -6,6 +6,9 @@ requires-python = ">=3.12"
 dependencies = [
     "argus-common",
     "argus-store",
+    # Analysis runs in this process (ADR-0033), so the service depends on the
+    # pipelines library -- never the other way round.
+    "argus-pipelines",
     "av>=13",
     "numpy>=1.26",
 ]

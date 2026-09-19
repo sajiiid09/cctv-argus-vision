@@ -60,7 +60,7 @@ in a position to keep such a promise and a promise we cannot keep is worse than
 none. What it does instead is constrain *our* engineering, which is the part we
 actually control. Where management's policy and this document collide, we say so
 out loud and in writing rather than quietly building the thing anyway — see
-`PRIVACY_AND_COMPLIANCE.md` for the questions we escalate rather than answer.
+`RISKS.md` for the questions we escalate rather than answer.
 
 The distinction matters and is easy to blur. "We built a system that makes
 disputes resolvable in minutes" is a true thing we can deliver. "Workers can

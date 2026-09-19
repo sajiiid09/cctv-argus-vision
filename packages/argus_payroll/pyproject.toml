@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Pairing, dwell, overage, export — pure functions over stored events. No vision. Ever."
 requires-python = ">=3.12"
 # argus-common only, for the clock and the single local-day conversion. Two
-# implementations of a day boundary is precisely the bug class DATA_MODEL.md §1
+# implementations of a day boundary is precisely the bug class ARCHITECTURE.md §7.1
 # guards against, so this is not reimplemented here to keep the list empty.
 dependencies = ["argus-common"]
 

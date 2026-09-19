@@ -1,8 +1,8 @@
--- 0001_init.sql — initial schema (DATA_MODEL.md, PROVISIONAL field names).
+-- 0001_init.sql — initial schema (ARCHITECTURE.md §7, PROVISIONAL field names).
 --
 -- Doorway events are evidence: append-only, enforced by trigger, not by habit.
--- cause values extend DATA_MODEL.md's illustrative list with 'stall' and
--- 'refused' (TESTING.md §4: stall is the WiFi failure mode; DVR refusal is
+-- cause values extend ARCHITECTURE.md §7's illustrative list with 'stall' and
+-- 'refused' (AGENTS.md §7: stall is the WiFi failure mode; DVR refusal is
 -- called out in ARCHITECTURE.md §6).
 
 create table if not exists camera (
@@ -43,7 +43,7 @@ create index if not exists doorway_event_camera_ts_idx
 
 create or replace function doorway_event_append_only() returns trigger as $$
 begin
-    raise exception 'doorway_event is append-only evidence (DATA_MODEL.md §1); update/delete is rejected';
+    raise exception 'doorway_event is append-only evidence (ARCHITECTURE.md §7.1); update/delete is rejected';
 end;
 $$ language plpgsql;
 

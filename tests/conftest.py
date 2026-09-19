@@ -31,6 +31,8 @@ from argus.ingest.streams import RTSPSource  # noqa: E402
 from argus.store.db import Database, apply_migrations  # noqa: E402
 from argus.store.store import Store  # noqa: E402
 
+from helpers import insert_person  # noqa: E402
+
 
 def _default_dsn() -> str:
     return os.environ.get(
@@ -103,12 +105,28 @@ async def postgres_db():
         await db.close()
 
 
+async def _truncate_everything(db) -> None:
+    """Empty every table the schema declares, derived rather than listed.
+
+    A hand-maintained list goes stale the moment a migration lands, and the
+    symptom is last test's rows leaking into next test's assertions -- which
+    shows up as an order-dependent failure somewhere else entirely.
+    """
+    rows = await db.fetch_all(
+        "select table_name from information_schema.tables"
+        " where table_schema = 'public' and table_type = 'BASE TABLE'"
+        " and table_name <> '_migration'"
+    )
+    names = sorted(r[0] for r in rows)
+    if not names:
+        return
+    await db.execute(f"truncate table {', '.join(names)} restart identity cascade")
+
+
 @pytest.fixture
 async def store(postgres_db):
     await apply_migrations(postgres_db)
-    await postgres_db.execute(
-        "truncate table doorway_event, stream_gap, camera, ingest_run restart identity cascade"
-    )
+    await _truncate_everything(postgres_db)
     yield Store(postgres_db)
 
 
@@ -173,6 +191,11 @@ def make_door_camera(camera_id: str = "canteen_door_01", uri: str | None = None)
         source_uri=uri or f"rtsp://localhost:8554/{camera_id}",
         is_virtual=True,
     )
+
+
+@pytest.fixture
+async def person(store):
+    return await insert_person(store.db)
 
 
 @pytest.fixture

@@ -77,19 +77,47 @@ def spawn(spec: StreamSpec) -> int:
 
 
 def read_pid(spec: StreamSpec) -> int | None:
+    """The live publisher for this stream, or None.
+
+    `kill(pid, 0)` is not enough on its own: a killed-but-unreaped child is a
+    zombie and answers it happily. Believing a zombie is alive is not a
+    cosmetic problem -- fault injection then signals a corpse, the stream never
+    stalls, and the test that was meant to prove stall detection fails with no
+    hint as to why. That is exactly how this was found, on macOS, where the
+    original /proc check silently did nothing.
+
+    So the state is read from /proc on Linux and from `ps` elsewhere, and the
+    command is checked too, because a recycled pid belonging to something else
+    is a worse answer than None.
+    """
     try:
         pid = int(spec.pid_file.read_text().strip())
         os.kill(pid, 0)
     except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):
         return None
-    # a killed-but-unreaped child answers kill(pid, 0) as a zombie; it is dead
     try:
         with open(f"/proc/{pid}/stat") as fh:
             state = fh.read().split(") ")[-1].split()[0]
-        if state == "Z":
-            return None
+        return None if state == "Z" else pid
     except OSError:
-        pass  # non-Linux or gone: signal check above was the verdict
+        pass  # no /proc: fall through to ps
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "state=,command=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        ).stdout.strip()
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return pid  # no ps either: the signal check above was the verdict
+    if not out:
+        return None
+    state, _, command = out.partition(" ")
+    if state.startswith("Z"):
+        return None
+    if "ffmpeg" not in command:
+        # The pid was recycled. Our publisher is gone.
+        return None
     return pid
 
 

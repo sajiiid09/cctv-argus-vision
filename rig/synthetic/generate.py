@@ -1,9 +1,9 @@
-"""Deterministic synthetic footage for the virtual camera rig (FOOTAGE.md §1).
+"""Deterministic synthetic footage for the virtual camera rig (ARCHITECTURE.md §9.1).
 
 Schedules are hardcoded — no RNG — so the same command produces the same video
 and the same ground truth. People are rendered as disks ("head + shoulders"
 from an overhead-ish doorway camera); the scenes carry no appearance realism
-and must never be used for accuracy claims (TESTING.md §6).
+and must never be used for accuracy claims (AGENTS.md §7).
 
 Writes:
   rig/footage/*.mp4          (git-ignored)

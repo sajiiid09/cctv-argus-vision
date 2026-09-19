@@ -99,7 +99,7 @@ class PacketRingBuffer:
     def set_params(self, params: CodecParams) -> None:
         """Record the stream's codec parameters, captured at session open.
 
-        A mid-stream resolution change (TESTING.md §4 lists it as a fault worth
+        A mid-stream resolution change (AGENTS.md §7 lists it as a fault worth
         injecting) makes older packets unmuxable alongside newer ones, so the
         buffer is dropped rather than left to produce a corrupt clip.
         """

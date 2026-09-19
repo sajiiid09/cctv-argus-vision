@@ -1,4 +1,4 @@
-"""Regenerate golden reference outputs (TESTING.md §3).
+"""Regenerate golden reference outputs (AGENTS.md §7).
 
 The reference backend is ONNX Runtime CPU fp32 — available everywhere
 including GPU-less CI, and numerically the most boring (ARCHITECTURE.md §5.3).

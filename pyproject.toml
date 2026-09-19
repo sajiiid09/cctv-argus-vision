@@ -1,3 +1,14 @@
+# The workspace root names itself only so the conflict declaration below can
+# attribute the `cpu`/`staging` groups to something: uv >= 0.12 requires a
+# `package` field in every conflicting entry, and a nameless virtual root has
+# nothing to name. `package = false` keeps it unbuildable and uninstallable --
+# it is a workspace root, not a distribution.
+[project]
+name = "argus-vision"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
 [tool.uv.workspace]
 members = ["packages/*", "services/*"]
 
@@ -20,6 +31,10 @@ dev = [
     "mypy>=1.13",
     "types-pyyaml>=6",
     "hypothesis>=6.100",
+    # ASGI test client for the console's route tests: they run against the app
+    # in-process, with the data layer faked, so they need no database. httpx2 is
+    # what current starlette wants; httpx alone warns on every import.
+    "httpx2>=0.28",
 ]
 # CPU inference: dev boxes, the GPU-less Linux box, and CI.
 cpu = [
@@ -36,8 +51,12 @@ staging = [
 # execution provider is mysteriously unavailable" rather than as a dependency
 # conflict. Declaring them conflicting makes uv refuse both at once, loudly.
 [tool.uv]
+package = false
 conflicts = [
-    [{ group = "cpu" }, { group = "staging" }],
+    [
+        { package = "argus-vision", group = "cpu" },
+        { package = "argus-vision", group = "staging" },
+    ],
 ]
 
 [tool.ruff]
@@ -53,6 +72,10 @@ ignore = ["SIM108"]
 # rig scripts are run as files with an explicit sys.path bootstrap; isort would
 # rewrite their sibling imports into non-runnable package paths
 "rig/bin/*" = ["I001"]
+# FastAPI's dependency injection is expressed as `Depends(...)` in a parameter
+# default, which is exactly what B008 exists to catch in ordinary code. Ignored
+# only here, where it is the framework's documented spelling.
+"services/ui/src/argus/ui/app.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -65,6 +88,10 @@ mypy_path = [
     "packages/argus_pipelines/src",
     "packages/argus_payroll/src",
     "services/ingest/src",
+    "services/pairing/src",
+    "services/enrol/src",
+    "services/gate/src",
+    "services/ui/src",
 ]
 disallow_untyped_defs = true
 no_implicit_optional = true
@@ -81,6 +108,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 markers = [
+    "reader: needs a ZKTeco badge reader on the LAN (never runs in CI)",
     "rig: requires the virtual camera rig (docker mediamtx + serving processes + footage)",
     "postgres: requires Postgres (docker)",
     "golden: requires fetched model artefacts (models/fetch.py)",

@@ -1,4 +1,4 @@
-"""One test per row of the DATA_MODEL.md §4 case table.
+"""One test per row of the ARCHITECTURE.md §7.3 case table.
 
 The file is named for the table so the two can be diffed by eye. Adding a row
 there means adding a test here, in the same commit (AGENTS.md §6).

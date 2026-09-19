@@ -1,4 +1,4 @@
-"""The properties from TESTING.md §2, plus two.
+"""The properties from AGENTS.md §7, plus two.
 
 Examples prove the cases someone thought of. The fail-open guarantee is a claim
 about the cases nobody thought of, which is what these are for.

@@ -4,7 +4,7 @@ Timestamps: the server clock is authoritative (``ts_server``); media time is
 recorded alongside (``ts_media``) but never used in arithmetic
 (ARCHITECTURE.md §5.8).
 
-Gap semantics (THREAT_MODEL.md §3): a gap opens when a session that produced
+Gap semantics (RISKS.md §6): a gap opens when a session that produced
 frames ends without a clean stop, and closes when frames flow again. "We saw
 nothing" and "nothing happened" must stay distinguishable downstream.
 """

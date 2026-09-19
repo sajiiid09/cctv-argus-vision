@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Gate</h2>
+<table>
+  <tr><th>Matched</th><th>Different face</th><th>No face</th><th>Not attempted</th></tr>
+  <tr>
+    <td>{{ counts['true'] }}</td>
+    <td class="{{ 'flagged' if counts['false'] else '' }}">{{ counts['false'] }}</td>
+    <td>{{ counts['no_face'] }}</td>
+    <td>{{ counts['not_attempted'] }}</td>
+  </tr>
+</table>
+<p class="muted">
+  “No face” is a camera problem; “different face” is a person to ask about. They
+  are never the same row.
+</p>
+<table>
+  <tr>
+    <th>Tapped</th><th>Badge</th><th>Holder</th><th>Outcome</th>
+    <th>Score</th><th>Source</th><th>Review</th>
+  </tr>
+  {% for event in events %}
+    <tr>
+      <td>{{ event.tapped_at }}</td>
+      <td>{{ event.badge_id }}</td>
+      <td>{{ event.person_id or 'unassigned' }}</td>
+      <td class="{{ 'flagged' if event.face_verified == 'false' else '' }}">{{ event.face_verified }}</td>
+      <td>{{ '%.3f' % event.match_score if event.match_score is not none else '—' }}</td>
+      <td class="muted">{{ event.source }}</td>
+      <td>
+        {% if event.review_state == 'pending' and event.face_verified == 'false' %}
+          <form class="inline" method="post" action="/gate/{{ event.gate_event_id }}/review">
+            <input type="hidden" name="decision" value="dismissed">
+            <button>Dismiss</button>
+          </form>
+          <form class="inline" method="post" action="/gate/{{ event.gate_event_id }}/review">
+            <input type="hidden" name="decision" value="escalated">
+            <button>Escalate</button>
+          </form>
+        {% else %}
+          <span class="muted">{{ event.review_state }}{% if event.reviewed_by %} by {{ event.reviewed_by }}{% endif %}</span>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+</table>
+<h3>Reader gaps</h3>
+{% if gaps %}
+  <table>
+    <tr><th>Reader</th><th>From</th><th>To</th><th>Cause</th></tr>
+    {% for gap in gaps %}
+      <tr>
+        <td>{{ gap.reader_id }}</td><td>{{ gap.from_utc }}</td>
+        <td>{{ gap.to_utc or 'open' }}</td><td>{{ gap.cause }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+  <p class="muted">“Nobody tapped” and “we were not listening” are different facts.</p>
+{% else %}
+  <p class="muted">No reader outages recorded.</p>
+{% endif %}
+{% endblock %}

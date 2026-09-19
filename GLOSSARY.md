@@ -18,7 +18,7 @@ term the factory uses.
 **Seat / workstation** — a fixed position on a line, assigned to an operator.
 Because assignment is fixed, a seat identifies a person via the roster — which is
 why we need no floor tracking (ADR-0002), and why per-seat occupancy is less
-anonymous than its schema suggests (`PRIVACY_AND_COMPLIANCE.md` §3).
+anonymous than its schema suggests (`RISKS.md` §3).
 
 **Bundle** — a tied batch of cut pieces moving along the line. Operators
 sometimes leave their seat to collect or pass bundles, which is one reason an
@@ -47,7 +47,7 @@ pay.
 **Allowance** — the permitted canteen time. Policy, not a constant in code.
 
 **BSCI / SMETA / WRAP** — buyer-driven social-compliance audit schemes. They will
-examine any camera-driven wage deduction. See `PRIVACY_AND_COMPLIANCE.md` §7.
+examine any camera-driven wage deduction. See `RISKS.md` §12.
 
 ---
 
@@ -62,7 +62,7 @@ across the door line. Not tracking, not re-ID: it lasts a second or two and dies
 at the door.
 
 **Pairing** — turning doorway events into dwell intervals via the state machine
-in `DATA_MODEL.md` §4. Where the care lives.
+in `ARCHITECTURE.md` §7.3. Where the care lives.
 
 **Dwell / dwell interval** — time between a paired enter and exit, per canteen
 *space* (not per door: a canteen with two doors is one space).
@@ -105,7 +105,7 @@ is the CI video source and the demo-day fallback. `ARCHITECTURE.md` §6.
 payroll export.
 
 **Golden frame** — a committed frame or clip with reference model outputs, used
-to measure backend divergence across platforms. `TESTING.md` §3.
+to measure backend divergence across platforms. `AGENTS.md` §7.
 
 **Parity / divergence** — how far a backend's output sits from the reference. The
 goal is bounded and visible, not zero.
@@ -133,3 +133,28 @@ its trigger. Without it, violence clips begin after the interesting part.
 **Sparrow Vision** — the product name (ADR-0024). The code namespace is
 `argus.`; that is an import path, not a product name, and the two coexist
 deliberately.
+
+**Tap** — a badge presented at the gate reader. Recorded before any face
+comparison is attempted, so a crash loses a verification result and never the
+attendance evidence. Four outcomes follow it: `true`, `false`, `no_face`,
+`not_attempted` — and `no_face` (a camera problem) never collapses into `false`
+(a person to ask about).
+
+**Reader gap** — the badge reader's `stream_gap`: the window in which nobody was
+listening to it. "Nobody tapped" and "we were not listening" are different
+facts. Unlike a stream gap it zeroes nothing, because the gate does not touch
+pay.
+
+**Candidate** — one item in the violence review queue: a clip, a trigger score,
+and the three pose features that produced it. Never a verdict, never a name, and
+nothing dismisses it but a named human (ADR-0012).
+
+**Pairing run** — one execution of `run_pairing` over a window, stored with the
+policy that produced it and a human sentence describing it. Recomputation writes
+a **new** run; nothing is ever edited, so a disputed line from months ago can be
+reproduced exactly.
+
+**Trigger (as opposed to a classifier)** — something cheap that decides whether
+a human should look. The violence pipeline is trigger-only by decision: a model
+trained on other people's fights has no business producing a conclusion about a
+specific worker.

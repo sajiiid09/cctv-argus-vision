@@ -70,7 +70,8 @@ box exists and is usable, in week two rather than week eight.
 modules, sha256-verified ONNX artefact mechanism (ADR-0026), committed golden
 frames + reference outputs, tolerance suite, and the import-graph structural
 check — all in CI (ADR-0025). **Verified legs:** CPU reference (Linux box + CI).
-**Pending:** CUDA leg on staging, CoreML leg on the Mac (ADR-0022). ADR-0011
+**Pending:** CUDA leg on staging, CoreML leg on the Mac (ADR-0022: on demand,
+not gating merges). ADR-0011
 closed: permissively licensed models only; bring-up artefact is Apache-2.0
 `ssd_mobilenet_v1`.
 
@@ -98,6 +99,19 @@ after this milestone inherits the abstraction instead of retrofitting it.
 
 ## M3 — Canteen doorway pipeline, synthetic (week 3–5)
 
+**Status 2026-09-18: built, minus identity.** The path runs end to end on rig
+footage — detect, track, cross, clip, write, pair, report, review — and
+`tests/rig/test_canteen_replay.py` finds nine of the manifest's ten labelled
+crossings with every direction correct and worst timing error inside
+`2/analysis_fps + 0.25s`. The tenth is the second of a pair crossing 1.05 s
+apart, which the mock detector merges into one blob; tailgating at real density
+is on the `ARCHITECTURE.md` §9.2 list.
+
+**Open, and it is the exit criterion that matters:** no face threshold has been
+measured, so `face.enabled` is false and every crossing is `unknown`. Unknown
+fails open to zero, so the numbers are honest — but nothing is attributed to
+anybody, and a threshold cannot be chosen without real faces (ADR-0010).
+
 **Goal.** The payroll-affecting path, end to end, on recorded video: face →
 identity → direction → doorway event → pairing → dwell → overage → shadow report.
 
@@ -105,18 +119,18 @@ identity → direction → doorway event → pairing → dwell → overage → s
 
 **Exit.**
 - Enrolment flow for a handful of test identities (our own faces, or consented
-  volunteers — see `FOOTAGE.md`).
+  volunteers — see `ARCHITECTURE.md` §9).
 - Face detection + embedding + matching at a door region, with an identity
   threshold chosen from measured data, not a vendor default.
 - Direction from a short single-camera track over the door line. No re-ID.
 - Doorway events persisted append-only with clip references.
-- **Pairing state machine implemented to `DATA_MODEL.md` §4, with every case in
+- **Pairing state machine implemented to `ARCHITECTURE.md` §7.3, with every case in
   the table covered by a test.** Property tests: no input sequence produces a
   non-zero overage in a non-`RESOLVED` state.
 - Overage computed per local day; shadow report rendered; nothing exported.
 - Every payroll line resolves to a clip in under a minute, by hand, by someone
   who did not write the code.
-- Monitoring metrics from `THREAT_MODEL.md` §7 exist from day one: `unknown`
+- Monitoring metrics from `RISKS.md` §8 exist from day one: `unknown`
   face rate per door per hour, unpaired event rate per door per day, stream gap
   minutes per camera per day, flagged-day percentage.
 
@@ -131,6 +145,12 @@ them. Payroll export. Occupancy. Violence.
 ---
 
 ## M4 — Gate attendance verification (week 5–6)
+
+**Status 2026-09-18: built against a simulated reader.** Taps, the four-way
+outcome, `reader_gap`, the review page and the as-of badge-holder lookup all
+exist and are tested. `ZktTapSource` is written and has never exchanged a byte
+with a device; `SimulatedTapSource` is the configured default. Verification
+itself returns `not_attempted` until a threshold is measured.
 
 **Goal.** Badge tap + face verify (1:1, not 1:N), producing attendance records
 with `verified / mismatch / no_face` distinguished.
@@ -155,6 +175,13 @@ and treating them as one problem would hide that.
 
 ## M5 — Workstation occupancy (week 6–7)
 
+**Status 2026-09-18: built.** Seat regions are configuration in frame fractions,
+the cadence is slow and the state is majority-smoothed, samples carry no
+`person_id`, and the test PLAN asks for below — no occupancy code path reaches a
+payroll table — checks both the import graph and `occupancy_sample`'s actual
+foreign keys. Per ADR-0019 the default view is line-level with per-seat behind
+the admin tier.
+
 **Goal.** Anonymous per-seat occupied/empty on a floor view, as a management
 report.
 
@@ -166,7 +193,8 @@ defined seat regions.
 - Occupancy sampled on a slow cadence (seconds, not frames), smoothed to avoid
   flapping on a person leaning out of frame.
 - Storage carries no `person_id` and no join path to one.
-- Dashboard shows line-level and (if ADR-0019 lands that way) per-seat rates.
+- Dashboard shows line-level rates, with per-seat behind the admin tier and
+  access-logged (ADR-0019).
 - A test asserts that no occupancy code path can reach a payroll table.
 
 **De-risks.** Comparatively little — this milestone is here because it is a
@@ -179,6 +207,13 @@ that could become a disciplinary artefact.
 ---
 
 ## M6 — Violence detection, trigger + queue (week 7–9)
+
+**Status 2026-09-18: the trigger and the queue are built; there is no
+classifier, by decision (ADR-0012).** Three geometric pose features, each
+normalised by shoulder width, one candidate per cooldown, and a review queue
+where nothing auto-dismisses. The thresholds are PROVISIONAL and rig-shaped —
+the rig contains no fights — and the false-positive rate on a real floor is
+unmeasurable before a site pilot.
 
 **Goal.** Cheap always-on pose trigger → clip → human review queue. Trigger-only
 is a valid exit; a classifier stage, if any, sits before the queue.
@@ -221,7 +256,7 @@ real cameras where available and the virtual rig as fallback.
   rather than buried.
 - The audit path demonstrated live: pick a line, watch the clip, in under a
   minute.
-- A named list of what is not validated without site cameras (`FOOTAGE.md` §4),
+- A named list of what is not validated without site cameras (`ARCHITECTURE.md` §9.2),
   presented rather than hidden.
 
 **Not doing.** Turning the payroll flag on. Promising accuracy numbers from
@@ -246,7 +281,8 @@ is granted — which is why it runs in parallel rather than in sequence.
 - Headcount through the canteen doors per minute at peak, measured, not guessed.
 - Production hardware sized against measured camera count and resolution.
 
-**De-risks.** Everything in `FOOTAGE.md` §4. Most of the residual risk in this
+**De-risks.** Everything in `ARCHITECTURE.md` §9.2. Most of the residual risk in
+this
 project is here, and none of it can be retired from a desk.
 
 ---
@@ -264,7 +300,7 @@ error modes to show themselves.
 - Manual audit of a sample of computed overages against clips, by a human who is
   not us.
 - Dispute path exercised at least once, end to end.
-- Legal review and buyer-compliance review complete (`PRIVACY_AND_COMPLIANCE.md`).
+- Legal review and buyer-compliance review complete (`RISKS.md`).
 
 **Not doing.** Flipping the payroll flag. That is a separate, explicit decision
 after this milestone produces evidence, and it needs the sign-off described in

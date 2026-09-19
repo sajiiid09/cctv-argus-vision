@@ -27,7 +27,7 @@ def measured_dwell_s(intervals: Iterable[Interval]) -> int:
     """Total measured dwell across intervals, whatever their state.
 
     Every computable duration counts, not only the resolved ones. That makes the
-    bound in TESTING.md §2 property 2 -- overage never exceeds the day's measured
+    bound in AGENTS.md §7 property 2 -- overage never exceeds the day's measured
     dwell -- a real constraint rather than a tautology over the same subset.
     """
     return sum(i.duration_s for i in intervals if i.duration_s is not None)

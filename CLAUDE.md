@@ -14,15 +14,34 @@ distinction between payroll-affecting code and everything else.
 
 ## Status
 
-**M0 closed, M1 and M2 implemented; the Linux/CPU leg is verified.** M3+ is in
-progress against a two-week demo deadline (`PLAN.md`, and the plan file the work
-is following). The pairing state machine in `packages/argus_payroll` is **built
-and tested** — full `DATA_MODEL.md` §4 case table plus eight property tests — but
-nothing produces doorway events yet, so it runs on no real data.
+**M0–M2 closed on the CPU leg; M3–M6 built and tested, on rig footage only.**
+The canteen path runs end to end — RTSP, decode, detect, track, cross, clip,
+write, pair, report, review — and the rig replay finds nine of the manifest's ten
+labelled crossings with every direction correct. Services: `ingest` (streams +
+canteen and floor pipelines), `pairing` (the runner around `argus.payroll`, plus
+`argus.pairing.report`), `enrol`, `gate`, `ui`.
+
+What that does **not** mean:
+
+- **Identity is off.** No face threshold has been measured, so `face.enabled` is
+  false, every crossing is `unknown`, and unknown fails open to zero (ADR-0010).
+- **The model artefacts are unresolved.** `yolo26m`, `yolo26m_pose`,
+  `scrfd_10g_bnkps` and `glintr100` are declared in `models/registry.yaml` with
+  no pinned url or sha256; the wrappers are written and tested against synthetic
+  session outputs. Only `ssd_mobilenet_v1` is fetchable, and the rig runs on the
+  mock backends.
+- **The badge reader has never been spoken to.** `ZktTapSource` is written,
+  `SimulatedTapSource` is the default.
+- **Every number describes the rig**, which draws people as bright disks
+  (`ARCHITECTURE.md` §9.2).
+
+Remaining work needs the NVIDIA box or real cameras: CUDA parity (open M2 exit),
+NVDEC (open M1 exit), all sizing numbers, per-camera GOP and the
+two-concurrent-client check, live ZKT taps, face thresholds, demo rehearsal.
 
 This deployment is a **personal, non-commercial test environment**: ADR-0030
 permits AGPL and research-only model weights on that basis and records the
-commercial boundary. Open ADRs: 0019, 0020, 0021, 0022, 0028.
+commercial boundary. Open ADRs: 0020, 0021 (both blocked on the M8 site survey).
 
 ## The one thing to get right
 
@@ -34,7 +53,7 @@ cannot tell whether you are in one, stop and find out — do not guess.
 
 ## Commands
 
-Same on every platform (`AGENTS.md` "Commands", `DEV_SETUP.md` §2).
+Same on every platform (`AGENTS.md` §5).
 
 ```bash
 uv sync --all-packages --group cpu       # dev env. `--group staging` on the NVIDIA box — NEVER both
@@ -46,6 +65,12 @@ uv run python rig/synthetic/generate.py  # deterministic rig footage + manifests
 uv run python rig/bin/rig_serve.py       # serve the virtual cameras over RTSP
 uv run python rig/bin/rig_rigctl.py status|pause|resume|stop|start <stream>   # fault injection
 uv run python -m argus.ingest --config config/dev.yaml
+uv run python -m argus.ingest --config config/rig_canteen.yaml   # + the canteen pipeline, mock detector
+uv run python -m argus.pairing --config config/dev.yaml --once --day 2026-09-18
+uv run python -m argus.pairing.report --config config/dev.yaml --day 2026-09-18
+uv run python -m argus.gate --config config/dev.yaml --once --badge B-1
+uv run python -m argus.ui --config config/dev.yaml     # console on 127.0.0.1:8080 (ADR-0028)
+uv run argus-enrol --config config/dev.yaml list
 ```
 
 Selecting tests — markers are declared in `pyproject.toml` and gate on external
@@ -54,21 +79,22 @@ dependencies, so use them instead of skipping by path:
 ```bash
 uv run pytest -m "not rig and not postgres"        # what CI's fast job runs; no docker needed
 uv run pytest -m golden                            # needs models/fetch.py to have run
+ARGUS_PARITY_BACKEND=onnx-coreml uv run pytest -m golden   # the CoreML leg, on demand (ADR-0022)
 uv run pytest tests/unit/test_streams.py::test_name -v    # one test
 uv run pytest -k pairing -v                        # one test by name substring
 ```
 
 `asyncio_mode = "auto"` — async tests need no decorator, and the Postgres/rig
-fixtures are session-scoped.
+fixtures are session-scoped. The `reader` marker holds the one test that needs a
+badge reader on the LAN; nothing selects it.
 
-Environment escape hatches: `ARGUS_PG_HOST_PORT=5434` (host 5432 busy) with
+Environment escape hatches: `ARGUS_PG_HOST_PORT=5434` (host 5432 busy — a native
+Postgres on the dev Mac takes it, so every command there needs this) with
 `ARGUS_DATABASE__DSN` / `ARGUS_TEST_DSN` pointed at the same port;
 `ARGUS_MODELS_ROOT` when model artefacts are not under `./models`.
 
-CI (`.github/workflows/ci.yml`) runs lint + mypy + the no-services tests on one
-job, then the full suite plus an ingest smoke test against real Postgres and
-mediamtx containers on another. Both on Linux — `AGENTS.md` §5: the Linux box is
-the arbiter.
+Credentials live in `config/secrets.env` (mode 600, git-ignored) and reach the
+YAML as `${VAR}`; `config/secrets.env.example` lists the names.
 
 ## Architecture
 
@@ -82,12 +108,15 @@ Directory name, distribution name and import path differ by one separator each �
   overrides, type-coerced; validation lives in dataclass `__post_init__`) and
   `clock.py` (`Clock` protocol, injected so time is an input).
 - `packages/argus_backends` — the **only** place `onnxruntime`/`torch`/TensorRT
-  may be imported. `interfaces.py` defines four narrow Protocols (`Detector`,
-  `PoseEstimator`, `FaceEmbedder`, `ClipClassifier`); `registry.py` selects by
+  may be imported. `interfaces.py` defines five narrow Protocols (`Detector`,
+  `FaceDetector`, `PoseEstimator`, `FaceEmbedder`, `ClipClassifier` — the last
+  registered by nothing, because ADR-0012 permits a trigger and a human, not a
+  classifier). `registry.py` is a `(kind, name)` registry selecting by
   *capability probe*, never a platform check, in preference order
-  `onnx-cuda → onnx-coreml → onnx-cpu`, and logs `backend=… model=…` on
-  construction. Application code calls `get_detector()`; a forced name
-  (`get_detector("onnx-cpu")`) is the "does this repro on CPU?" lever.
+  `onnx-cuda → onnx-coreml → onnx-cpu`, and logs `kind= backend= model=` on
+  construction. Application code calls `get_detector()` / `get_face_embedder()`;
+  a forced name (`get_detector("onnx-cpu")`) is the "does this repro on CPU?"
+  lever, and `"mock"` is selectable for every kind but never preferred.
 - `packages/argus_store` — Postgres access (`db.py` migrations from
   `schema/*.sql`, `store.py` typed writes) and `bus.py`. **Postgres is the bus**
   (ADR-0013): every doorway-event and stream-gap write NOTIFYs `argus_events`;
@@ -98,8 +127,28 @@ Directory name, distribution name and import path differ by one separator each �
   a test asserts its absence. **Read `pairing.py`'s module docstring before
   changing anything here** — the walk is per (person, space) and *not* per day,
   for a reason that looks like a bug if you do not know it.
-- `packages/argus_pipelines` — still a skeleton; the layer that will connect
-  decoded frames to the registry and write doorway events.
+- `packages/argus_pipelines` — decoded frames to evidence. `base.py` (Protocols
+  the ingest service satisfies structurally, plus `GapKeeper`: a pipeline that
+  stops analysing opens a gap), `runtime.py` (one thread per model session;
+  drops the oldest frame and counts it), `tracking.py` (geometry only, no
+  appearance features, ids never stored — ADR-0002), `doorway.py` (**read the
+  sign convention**: for a line drawn top-to-bottom, inside is east), `faces.py`
+  (quality gate, best-of-K, threshold *and* margin, no default thresholds),
+  `aim.py` (ADR-0029 drift check), `canteen.py` (the only writer of doorway
+  events), `occupancy.py`, `violence.py`, `gate/` (stdlib-only tap contract,
+  the four-way outcome, the ZKT client), `metrics.py`.
+- `services/pairing` — the orchestrator around `argus.payroll`, which may not
+  import a database: `load.py` reads evidence (space from the camera join, gaps
+  per space, open gaps kept, a lead-in window so a boundary cannot decide who is
+  charged), `persist.py` writes a run in one transaction with the NOTIFY last
+  and inside it, `report.py` prints the `RISKS.md` §8 metrics.
+- `services/enrol` — the only path by which a face template exists. `--by` is
+  required everywhere and has no default; consent is enforced twice; `purge
+  --expired` takes templates and images together.
+- `services/gate` — badge taps, the four-way outcome, `reader_gap`. The tap is
+  written before verification is attempted.
+- `services/ui` — the console. Renders stored rows, imports no `argus.payroll`
+  (structural test), logs every clip view including refusals.
 - `services/ingest` — `streams.py` (RTSP connect, reconnect-with-backoff, stall
   detection, `stream_gap` rows; buffers **encoded packets** and decodes only at
   `analysis_fps`), `ringbuffer.py` (`PacketRingBuffer` for evidence,
@@ -127,12 +176,17 @@ Three invariants that shape the code more than anything else:
 
 ## Structural tests are the architecture
 
-`tests/structural/test_structure.py` enforces, as failing tests, things review
-would otherwise have to catch: no backend runtime imported outside
-`packages/argus_backends`, no vision imports in `argus/payroll`, no wall-clock
-call in `argus/payroll`, all code paths lowercase (the dev Mac is
-case-insensitive, the production box is not), golden reference committed with its
-artefact hash, rig manifests carrying `licence:` and `consent:`. If a change
+`tests/structural/test_structure.py` and `tests/structural/test_sql_contracts.py`
+enforce, as failing tests, things review would otherwise have to catch: no
+backend runtime imported outside `packages/argus_backends`, no vision imports in
+`argus/payroll`, no wall-clock call in `argus/payroll`, all code paths lowercase
+(the dev Mac is case-insensitive, the production box is not), golden reference
+committed with its artefact hash, rig manifests carrying `licence:` and
+`consent:`, `argus.pipelines` importing no payroll, the console importing no
+payroll, one writer of derived payroll rows, the reader protocol in exactly one
+module, no module reading both face thresholds, no auto-dismissal, no export
+anywhere, every non-commercial artefact named in `DECISIONS.md`, and the
+enum↔SQL-CHECK vocabularies agreeing in both directions. If a change
 makes one of these fail, the change is wrong — do not relax the test.
 
 Two traps worth knowing before you edit anything under `argus/payroll`: the

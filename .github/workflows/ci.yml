@@ -52,7 +52,7 @@ jobs:
         env:
           ARGUS_MODELS_ROOT: ${{ github.workspace }}/models
         run: uv run pytest -v
-      - name: Ingest smoke (DEV_SETUP §5 list)
+      - name: Ingest smoke (AGENTS.md §5 list)
         env:
           ARGUS_MODELS_ROOT: ${{ github.workspace }}/models
         run: |
@@ -61,3 +61,14 @@ jobs:
           timeout 40 uv run python -m argus.ingest --config config/dev.yaml & sleep 25
           uv run ffprobe -v error -show_streams rtsp://localhost:8554/canteen_door_01 | grep -q h264
           kill %2 || true
+      - name: Service smoke — every entrypoint starts on Linux
+        run: |
+          day="$(date -u +%F)"
+          # exit 4 is "the window was empty", which is the expected answer here:
+          # dev.yaml runs ingest with the pipelines off, so nothing produced a
+          # doorway event to pair.
+          uv run python -m argus.pairing --config config/dev.yaml --once --day "$day" \
+            || [ "$?" -eq 4 ]
+          uv run python -m argus.pairing.report --config config/dev.yaml --day "$day"
+          uv run python -m argus.gate --config config/dev.yaml --once --badge B-1
+          uv run argus-enrol --config config/dev.yaml list

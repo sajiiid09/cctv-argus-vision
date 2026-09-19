@@ -17,6 +17,23 @@ from argus.store.db import Database, new_uuid
 
 EVENTS_CHANNEL = "argus_events"
 
+# Kept in one place because the SQL check constraint and this tuple must agree;
+# tests/structural/test_sql_contracts.py compares them in both directions.
+# 'aim_changed' is ADR-0029 (the camera moved off its preset) and 'overload' is
+# ADR-0033 (the analyser could not keep up). Both mean "we stopped measuring",
+# which payroll reads as a reason to zero the day -- unlike 'offline', which
+# means the camera went away.
+GAP_CAUSES = (
+    "offline",
+    "decode_error",
+    "crash",
+    "clock_anomaly",
+    "stall",
+    "refused",
+    "aim_changed",
+    "overload",
+)
+
 
 @dataclass(slots=True)
 class DoorwayEvent:
@@ -31,7 +48,9 @@ class DoorwayEvent:
     detection_quality: float | None
     clip_ref: str | None
     ingest_run_id: UUID | None
-    superseded_by: UUID | None
+    # Set on the LATER of two detections of one crossing, pointing at the
+    # earlier row, which is the one that survives (ADR-0032).
+    duplicate_of: UUID | None
 
 
 @dataclass(slots=True)
@@ -60,12 +79,13 @@ class Store:
     async def upsert_camera(self, cam: CameraConfig) -> None:
         await self.db.execute(
             """
-            insert into camera (camera_id, role, source_uri, space_id, door_id,
-                                direction_hint, is_virtual)
-            values (%s, %s, %s, %s, %s, %s, %s)
+            insert into camera (camera_id, role, source_uri, analysis_uri, space_id,
+                                door_id, direction_hint, is_virtual)
+            values (%s, %s, %s, %s, %s, %s, %s, %s)
             on conflict (camera_id) do update set
                 role = excluded.role,
                 source_uri = excluded.source_uri,
+                analysis_uri = excluded.analysis_uri,
                 space_id = excluded.space_id,
                 door_id = excluded.door_id,
                 direction_hint = excluded.direction_hint,
@@ -74,13 +94,55 @@ class Store:
             (
                 cam.camera_id,
                 cam.role,
-                cam.source_uri,
+                # The un-expanded ${VAR} template, never the expanded URI: a
+                # credential must not reach a row, and the schema's CHECK
+                # refuses one anyway.
+                cam.source_uri_template or cam.source_uri,
+                cam.analysis_uri_template or cam.analysis_uri,
                 cam.space_id,
                 cam.door_id,
                 cam.direction_hint,
                 cam.is_virtual,
             ),
         )
+
+    async def insert_clip(
+        self,
+        camera_id: str,
+        rel_path: str,
+        start_utc: datetime,
+        end_utc: datetime,
+        *,
+        keyframe_utc: datetime | None = None,
+        is_virtual: bool = False,
+        size_bytes: int | None = None,
+    ) -> UUID:
+        """Register an extracted clip so something can point at it.
+
+        A clip file with no row is a file nobody can find: the console resolves
+        a `clip_id`, never a path, and retention consults references rather than
+        age (RISKS.md §9). The keyframe is the clip's *actual* first frame, which
+        is at or before the requested start (ADR-0031) and is what a deep link
+        must be measured from.
+        """
+        clip_id = new_uuid()
+        await self.db.execute(
+            "insert into clip (clip_id, camera_id, rel_path, start_utc, end_utc,"
+            " keyframe_utc, is_virtual, bytes) values (%s,%s,%s,%s,%s,%s,%s,%s)"
+            " on conflict (rel_path) do nothing",
+            (
+                clip_id,
+                camera_id,
+                rel_path,
+                start_utc,
+                end_utc,
+                keyframe_utc or start_utc,
+                is_virtual,
+                size_bytes,
+            ),
+        )
+        row = await self.db.fetch_one("select clip_id from clip where rel_path = %s", (rel_path,))
+        return row[0] if row else clip_id
 
     async def record_ingest_run(self, code_version: str, cfg_hash: str) -> UUID:
         run_id = new_uuid()
@@ -103,20 +165,19 @@ class Store:
         detection_quality: float | None = None,
         clip_ref: str | None = None,
         ingest_run_id: UUID | None = None,
-        superseded_by: UUID | None = None,
+        duplicate_of: UUID | None = None,
     ) -> DoorwayEvent:
         if direction not in ("enter", "exit", "ambiguous"):
             raise ValueError(f"invalid direction {direction!r}")
-        if person_id is None and direction in ("enter", "exit"):
-            # unknown face: person_id null is valid evidence, kept explicit
-            pass
+        # person_id None is valid evidence, not an error: an unrecognised face is
+        # the fail-open outcome and the row is kept so the flag can be counted.
         event_id = new_uuid()
         await self.db.execute(
             """
             insert into doorway_event (event_id, camera_id, door_id, ts_utc,
                                        ts_camera_reported, direction, person_id,
                                        match_confidence, detection_quality,
-                                       clip_ref, ingest_run_id, superseded_by)
+                                       clip_ref, ingest_run_id, duplicate_of)
             values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
@@ -131,7 +192,7 @@ class Store:
                 detection_quality,
                 clip_ref,
                 ingest_run_id,
-                superseded_by,
+                duplicate_of,
             ),
         )
         event = DoorwayEvent(
@@ -146,7 +207,7 @@ class Store:
             detection_quality=detection_quality,
             clip_ref=clip_ref,
             ingest_run_id=ingest_run_id,
-            superseded_by=superseded_by,
+            duplicate_of=duplicate_of,
         )
         await self._notify(
             "doorway_event",
@@ -158,8 +219,8 @@ class Store:
         return event
 
     async def open_gap(self, camera_id: str, from_utc: datetime, cause: str) -> UUID:
-        if cause not in ("offline", "decode_error", "crash", "clock_anomaly", "stall", "refused"):
-            raise ValueError(f"invalid gap cause {cause!r}")
+        if cause not in GAP_CAUSES:
+            raise ValueError(f"invalid gap cause {cause!r}; expected one of {GAP_CAUSES}")
         gap_id = new_uuid()
         await self.db.execute(
             "insert into stream_gap (gap_id, camera_id, from_utc, to_utc, cause)"
@@ -204,13 +265,13 @@ class Store:
             rows = await self.db.fetch_all(
                 "select event_id, camera_id, door_id, ts_utc, ts_camera_reported, direction,"
                 " person_id, match_confidence, detection_quality, clip_ref, ingest_run_id,"
-                " superseded_by from doorway_event order by ts_utc"
+                " duplicate_of from doorway_event order by ts_utc"
             )
         else:
             rows = await self.db.fetch_all(
                 "select event_id, camera_id, door_id, ts_utc, ts_camera_reported, direction,"
                 " person_id, match_confidence, detection_quality, clip_ref, ingest_run_id,"
-                " superseded_by from doorway_event where camera_id = %s order by ts_utc",
+                " duplicate_of from doorway_event where camera_id = %s order by ts_utc",
                 (camera_id,),
             )
         return [
@@ -226,7 +287,7 @@ class Store:
                 detection_quality=r[8],
                 clip_ref=r[9],
                 ingest_run_id=r[10],
-                superseded_by=r[11],
+                duplicate_of=r[11],
             )
             for r in rows
         ]

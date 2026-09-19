@@ -1,4 +1,4 @@
-"""Generate the committed golden frames (TESTING.md §3).
+"""Generate the committed golden frames (AGENTS.md §7).
 
 Run once (or when the set is deliberately changed):
     uv run --no-sync python tests/golden/make_frames.py

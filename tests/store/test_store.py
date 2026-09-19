@@ -40,7 +40,7 @@ async def test_camera_upsert(store):
     assert rows == [("canteen_door_01", "rtsp://new", True, "canteen")]
 
 
-async def test_doorway_event_append_only(store):
+async def test_doorway_event_append_only(store, person):
     await store.upsert_camera(_cam())
     event = await store.insert_doorway_event(
         "canteen_door_01", "c1", NOW, "enter", person_id="p1", clip_ref="clips/x.mp4"

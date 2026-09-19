@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Sparrow Vision{% endblock %}</title>
+  <style>
+    :root { color-scheme: light dark; --edge: #c8c8c8; --flag: #8a4b00; --ok: #16610e; }
+    body { font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 62rem; padding: 1rem; }
+    header { border-bottom: 1px solid var(--edge); margin-bottom: 1rem; }
+    nav a { margin-right: 1rem; }
+    table { border-collapse: collapse; width: 100%; margin: 0.5rem 0 1.5rem; }
+    th, td { text-align: left; padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--edge); }
+    th { font-weight: 600; }
+    .shadow { border: 1px solid var(--flag); padding: 0.6rem 0.8rem; margin-bottom: 1rem; }
+    .flagged { color: var(--flag); font-weight: 600; }
+    .clean { color: var(--ok); }
+    .muted { color: #666; }
+    code { font-size: 0.9em; }
+    form.inline { display: inline; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Sparrow Vision</h1>
+  <nav>
+    <a href="/">Overview</a>
+    <a href="/canteen">Canteen</a>
+    <a href="/gate">Gate</a>
+    <a href="/violence">Review queue</a>
+    <a href="/monitoring">Monitoring</a>
+    {% if actor %}
+      <span class="muted">{{ actor.name }} ({{ actor.role.value }})</span>
+      <form class="inline" method="post" action="/logout"><button>Log out</button></form>
+    {% endif %}
+  </nav>
+</header>
+<main>
+  {% block content %}{% endblock %}
+</main>
+<footer class="muted">
+  <p>
+    Shadow mode: every figure here is computed and reported only. Nothing is
+    written to payroll and no export exists.
+  </p>
+</footer>
+</body>
+</html>

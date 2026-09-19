@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>{{ person_id }} — {{ local_day }}</h2>
+<div class="shadow">
+  {{ run.policy_description }}<br>
+  <span class="muted">run <code>{{ run.pairing_run_id }}</code> computed {{ run.computed_at }}</span>
+</div>
+<table>
+  <tr><th>State</th><th>In</th><th>Out</th><th>Duration</th><th>Flags</th><th>Evidence</th></tr>
+  {% for interval in intervals %}
+    <tr>
+      <td class="{{ 'clean' if interval.state == 'resolved' else 'flagged' }}">{{ interval.state }}</td>
+      <td>{{ interval.start_utc or '—' }}</td>
+      <td>{{ interval.end_utc or '—' }}</td>
+      <td>{{ interval.duration_s | humanise }}</td>
+      <td class="muted">{{ interval.flags | join(', ') }}</td>
+      <td>
+        {% if interval.enter_clip_id %}
+          <a href="/clip/{{ interval.enter_clip_id }}">entry clip</a>
+        {% else %}<span class="flagged">no entry clip</span>{% endif %}
+        /
+        {% if interval.exit_clip_id %}
+          <a href="/clip/{{ interval.exit_clip_id }}">exit clip</a>
+        {% else %}<span class="flagged">no exit clip</span>{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+</table>
+<p class="muted">
+  No clip, no deduction (ADR-0008): an interval without evidence at both ends
+  flags the day and charges nothing.
+</p>
+{% endblock %}

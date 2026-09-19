@@ -75,10 +75,26 @@ per-stream ring of recent **encoded packets** so a clip can include the seconds
 interesting part. Decoded frames are a separate, short, sampled tap for the
 pipelines (ADR-0031).
 
-**Analysis workers.** One process family per pipeline. Separate processes rather
-than one loop, because latency requirements differ by orders of magnitude — a
-door event is near-real-time, occupancy can be sampled every few seconds — and
-because a crash in violence detection must not stop canteen pairing.
+**Analysis workers.** Designed as one process family per pipeline, because
+latency requirements differ by orders of magnitude — a door event is
+near-real-time, occupancy can be sampled every few seconds — and because a crash
+in violence detection must not stop canteen pairing.
+
+**As built, analysis runs inside the ingest process** (ADR-0033). Two
+constraints forced it: frames never travel over the bus (ADR-0013), and each
+camera is already opened twice (ADR-0031), so a separate process would mean a
+third RTSP client against a concurrent-client limit nobody has measured. Each
+pipeline is a supervised task instead: an exception opens a `stream_gap` for
+that camera, the task restarts with backoff, and the gap closes when events flow
+again — so a crashed analyser is never silent. The isolation the original shape
+would have given is the thing to buy back once the camera budget is known.
+
+**Services as they exist.** `services/ingest` (streams, packet ring, clips, and
+the canteen and floor pipelines), `services/pairing` (the runner around
+`argus.payroll`, plus the monitoring report), `services/enrol` (people, consent,
+templates, badges, purge), `services/gate` (badge taps and 1:1 verification),
+`services/ui` (the operator console). Everything that computes a number a wage
+could come from is in `argus.payroll`, which the console cannot even import.
 
 **Event store.** Append-only doorway events plus derived, recomputable
 aggregates. Raw events are evidence and are never edited; dwell, overage and
@@ -89,7 +105,10 @@ tiers. Every payroll-affecting record points into it. Clips are produced by
 remuxing buffered packets, so they are bit-identical to what the camera sent.
 
 **Payroll boundary — decided.** We never write to a payroll system. We produce a
-reviewed, signed export and a human enters it. This keeps the irreversible action
+reviewed, signed export and a human enters it. **No export exists**, by
+decision (ADR-0005/0006): three tests assert its absence — no module, no route,
+no CSV writer — and `payroll_line.exported_at` is refused by a database trigger
+naming the `AGENTS.md` §2.1 sign-off. This keeps the irreversible action
 in human hands, makes shadow mode a one-line difference, and avoids integrating
 with software we have not seen.
 
@@ -186,7 +205,8 @@ rather than carried over:
 | Clip classifier scores | ±0.10, identical top-1 | Output goes to a human queue, so ranking matters more than calibration |
 
 Select a non-default leg with `ARGUS_PARITY_BACKEND`. The CUDA leg and the macOS
-CoreML leg (ADR-0022, **OPEN**) are both unrun.
+CoreML leg (ADR-0022: run on a dev Mac on demand, not in CI) are both
+unrun.
 
 ### 5.4 What runs in containers
 
