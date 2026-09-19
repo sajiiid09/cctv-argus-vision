@@ -286,12 +286,52 @@ same artefact hash. If it *skips*, the backend was unavailable and you are back
 at §4.4; a skip is not a pass. Record the result in `DECISIONS.md` (ADR-0022
 asks for exactly that) and update `PLAN.md` M2.
 
+Once `yolo26m` is pinned (§7.1), its leg runs beside SSD's and against its own
+committed reference:
+
+```bash
+ARGUS_MODELS_ROOT="$PWD/models" ARGUS_PARITY_ARTEFACT=yolo26m \
+  ARGUS_PARITY_BACKEND=onnx-cuda-yolo uv run pytest -m golden -q
+```
+
 Step 3 includes `tests/rig/test_canteen_replay.py`, which replays the manifest
 through RTSP and expects nine of ten labelled crossings with every direction
 correct. That is the end-to-end proof, and the tenth is a known merge of two
 people crossing 1.05 s apart.
 
 ---
+
+### 7.1 Resolving the YOLO artefact
+
+The detector the canteen path is meant to use (`yolo26m`, ADR-0030) is
+registered as `onnx-cpu-yolo` / `onnx-cuda-yolo` / `onnx-coreml-yolo` and is
+**unresolved**: `models/registry.yaml` pins no url and no sha256, so
+constructing it raises a `ModelArtefactError` naming that file. Nothing selects
+it by accident — SSD stays the default for every plain backend name.
+
+The model itself is pretrained; there is nothing to train here, ever. What is
+missing is the file and its hash.
+
+1. Obtain `yolo26m.onnx`. ADR-0030's construction is that the artefact is a
+   **pre-exported ONNX**, so no AGPL code enters this runtime. If you export it
+   yourself with `ultralytics`, do it in a throwaway virtualenv, never in this
+   project's environment.
+2. `sha256sum yolo26m.onnx`.
+3. Fill in `sha256:` and `url:` in `models/registry.yaml` and **delete the
+   `status: unresolved` line**. A `file:///srv/...` path is a valid url and
+   keeps `models/fetch.py`'s hash check in the loop. Leave
+   `commercial_use: false` alone.
+4. `uv run python models/fetch.py` — fetches and verifies.
+5. Produce the reference **on a CPU box** (the reference leg is always CPU,
+   `ARCHITECTURE.md` §5.3) and commit it:
+   `ARGUS_MODELS_ROOT=models uv run python tests/golden/make_reference.py yolo26m`
+6. Run the CUDA leg above against that reference, and record the observed
+   divergence. YOLO's tolerances are not SSD's and are not inherited.
+7. Only then point a pipeline at it: `detector_backend: onnx-cuda-yolo`.
+
+If the export's output tensor is neither `(1,N,6)` nor `(1,84,N)`, construction
+refuses with the shape it saw. That is the wrapper working — a guessed layout
+produces boxes that are wrong in a way no test notices.
 
 ## 8. Running it
 

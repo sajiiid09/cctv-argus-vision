@@ -26,6 +26,13 @@ artifacts:
   # requires each of them to be named in DECISIONS.md, which is what stops the
   # demo posture quietly becoming the pilot posture.
 
+  # To resolve this entry: put the sha256 of the exact .onnx file in `sha256`,
+  # a url `models/fetch.py` can reach in `url` (a `file:///...` path is a valid
+  # url and keeps the hash check in the loop), and DELETE the `status` line.
+  # Then `make_reference.py yolo26m` on the CPU reference machine, commit
+  # `tests/golden/reference/yolo26m.json`, and run the CUDA leg on the box with
+  # ARGUS_PARITY_ARTEFACT=yolo26m ARGUS_PARITY_BACKEND=onnx-cuda-yolo.
+  # `commercial_use: false` stays whatever else changes (ADR-0030).
   yolo26m:
     file: artifacts/yolo26m.onnx
     sha256: null
