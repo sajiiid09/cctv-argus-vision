@@ -9,6 +9,14 @@ Decisions matter more than numbers: a verification flip fails regardless of
 how small the drift was (face embeddings will enforce that at M3).
 
 Run a non-default leg with ``ARGUS_PARITY_BACKEND=onnx-cuda uv run pytest -m golden``.
+
+The artefact is selected the same way::
+
+    ARGUS_PARITY_ARTEFACT=yolo26m ARGUS_PARITY_BACKEND=onnx-cuda-yolo \
+        uv run pytest -m golden
+
+A reference belongs to one model file, so artefact and backend move together;
+mixing them trips the artefact-hash assertion first, by design.
 """
 
 from __future__ import annotations
@@ -44,6 +52,11 @@ SCORE_TOLERANCE = 0.05
 # the same assertions against the same artefact hash by setting this. Without it
 # the CUDA leg -- an outstanding M2 exit criterion -- cannot be run at all.
 PARITY_BACKEND = os.environ.get("ARGUS_PARITY_BACKEND", "onnx-cpu")
+# Which model file this run is about. `yolo26m` is the ADR-0030 artefact and is
+# unresolved until somebody pins a url and a sha256 for it, so a run naming it
+# skips with that message rather than failing -- a leg that cannot run is not a
+# leg that disagrees.
+PARITY_ARTEFACT = os.environ.get("ARGUS_PARITY_ARTEFACT", "ssd_mobilenet_v1")
 
 
 def _detector():
@@ -54,9 +67,12 @@ def _detector():
 
 
 def _reference():
-    ref_path = GOLDEN / "reference" / "ssd_mobilenet_v1.json"
+    ref_path = GOLDEN / "reference" / f"{PARITY_ARTEFACT}.json"
     if not ref_path.exists():
-        pytest.skip("no committed reference outputs; run make_reference.py")
+        pytest.skip(
+            f"no committed reference for {PARITY_ARTEFACT}; run "
+            f"`make_reference.py {PARITY_ARTEFACT}` on the CPU reference machine"
+        )
     return json.loads(ref_path.read_text())
 
 

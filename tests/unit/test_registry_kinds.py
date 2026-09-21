@@ -84,3 +84,30 @@ def test_every_kind_has_a_mock(caplog) -> None:
     # The construction log is the answer to "which backend produced this number".
     assert "pose backend=mock" in caplog.text
     assert "face_embedder backend=mock model=mock-embed@000000000000" in caplog.text
+
+
+def test_yolo_is_registered_per_runtime_and_never_preferred() -> None:
+    """Two artefacts, two families, two sets of parity numbers (ADR-0030).
+
+    `onnx-cuda` is the Apache-2.0 bring-up SSD; `onnx-cuda-yolo` is the AGPL,
+    non-commercial YOLO. Selecting the second has to be a sentence somebody
+    wrote in config, because which model produced a detection is the first
+    question in any argument about a crossing.
+    """
+    from argus.backends.registry import _ensure_registered
+
+    registered = _ensure_registered().registered("detector")
+    for name in ("onnx-cpu-yolo", "onnx-cuda-yolo", "onnx-coreml-yolo"):
+        assert name in registered
+        assert name not in DEFAULT_PREFERENCE
+
+
+def test_an_unresolved_artefact_raises_rather_than_dropping_out() -> None:
+    """A probe answers "is this runtime usable", never "is the artefact
+    fetched" -- so an unpinned artefact must fail loudly at construction and
+    not let something slower serve the request instead."""
+    from argus.backends.onnx_common import ModelArtefactError
+    from argus.backends.registry import get_detector
+
+    with pytest.raises(ModelArtefactError, match="yolo26m is unresolved"):
+        get_detector("onnx-cpu-yolo")

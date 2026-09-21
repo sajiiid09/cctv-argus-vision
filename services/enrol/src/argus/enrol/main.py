@@ -70,9 +70,7 @@ async def _dispatch(args: argparse.Namespace) -> int:
                 display_name=args.name,
                 line_id=args.line,
                 seat_id=args.seat,
-                active_from=date.fromisoformat(args.active_from)
-                if args.active_from
-                else today,
+                active_from=date.fromisoformat(args.active_from) if args.active_from else today,
                 by=args.by,
                 dry_run=args.dry_run,
             )

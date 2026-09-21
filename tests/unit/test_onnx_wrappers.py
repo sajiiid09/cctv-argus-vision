@@ -39,6 +39,10 @@ class _Session:
     def get_outputs(self) -> list[_Spec]:
         return self._outputs
 
+    def get_providers(self) -> list[str]:
+        # The wrappers record what the session GOT, so the stand-in answers too.
+        return ["CPUExecutionProvider"]
+
     def run(self, names, feed):  # mirrors the ort signature
         self.last_tensor = next(iter(feed.values()))
         return self._results

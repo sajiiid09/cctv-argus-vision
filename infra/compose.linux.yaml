@@ -34,6 +34,8 @@ services:
         condition: service_healthy
     environment:
       ARGUS_DATABASE__DSN: postgresql://argus:argus@postgres:5432/argus
+      # registry.yaml is baked into the image; the binaries are the mount below.
+      ARGUS_MODELS_ROOT: /app/models
     volumes:
       - ../config:/etc/argus/config:ro
       - ../var/clips:/app/var/clips

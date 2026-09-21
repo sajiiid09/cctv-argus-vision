@@ -1,0 +1,101 @@
+# The NVIDIA box, running the canteen pipeline over the virtual cameras.
+#
+# `config/staging.yaml` records streams and nothing else: it has no door lines,
+# so ingest is a recorder there. This file is the one that analyses, and it is
+# what the demo and the M1/M2 bring-up on the box use (LINUX_SETUP.md).
+#
+# Two things it deliberately does NOT claim:
+#
+# * `detector_backend: mock` — the rig draws people as bright disks and the mock
+#   detector finds bright disks, so this proves geometry, tracking, direction,
+#   clipping, event writing and fail-open. It proves no accuracy whatever
+#   (ARCHITECTURE.md §9.2). Setting `onnx-cuda` here runs the real SSD bring-up
+#   detector on the GPU, which is a useful CUDA exercise and will find *no*
+#   people in synthetic footage — a green pipeline with zero crossings is the
+#   expected result of that swap, not a regression.
+# * `decode: nvidia` — asks for NVDEC and says so at ERROR level and falls back
+#   to software if this libav build has no cuda device (ARCHITECTURE.md §5.5).
+#   Read the startup log before believing the GPU decoded anything.
+#
+# Native run on the box: mediamtx and Postgres are containers with published
+# ports, everything else is a process, so the URIs are localhost.
+timezone: Asia/Dhaka
+
+database:
+  dsn: postgresql://argus:argus@localhost:5432/argus
+
+clips:
+  dir: var/clips
+
+ui:
+  bind_host: 127.0.0.1
+  port: 8080
+
+gate:
+  tap_source: simulated
+  reader_id: gate_reader_01
+  camera_id: gate_door
+
+pipelines:
+  enabled: true
+  detector_backend: mock
+  queue_depth: 2
+  canteen:
+    person_score: 0.5
+    band: 0.03
+    min_samples_per_side: 2
+    clip_pre_s: 4.0
+    clip_post_s: 2.0
+    clip_timeout_s: 8.0
+
+face:
+  enabled: false   # no measured threshold, so every crossing is unknown (ADR-0010)
+
+ingest:
+  stall_timeout_s: 5
+  decode: nvidia
+  reconnect:
+    initial_s: 0.5
+    max_s: 30
+    jitter: 0.25
+  ring_buffer_seconds: 15
+  analysis_fps: 15
+
+cameras:
+  - camera_id: canteen_door_01
+    role: canteen_door
+    space_id: canteen
+    door_id: c1
+    direction_hint: east
+    source_uri: rtsp://localhost:8554/canteen_door_01
+    is_virtual: true
+    # Fractions of the frame, never pixels (ADR-0031). Top-to-bottom line down
+    # the middle, matching the rig's door_line_x: 320 on a 640-wide frame;
+    # inside is east of it, so walking east is entering.
+    door_line: [0.5, 0.0, 0.5, 1.0]
+    inside_sign: 1
+    analysis_fps: 15
+
+  - camera_id: canteen_door_02
+    role: canteen_door
+    space_id: canteen
+    door_id: c2
+    direction_hint: west
+    source_uri: rtsp://localhost:8554/canteen_door_02
+    is_virtual: true
+    door_line: [0.5, 0.0, 0.5, 1.0]
+    # This door faces the other way: inside is west. Pairing is per space, so an
+    # enter here pairs with an exit at c1.
+    inside_sign: -1
+    analysis_fps: 15
+
+  - camera_id: gate_door
+    role: gate
+    door_id: g1
+    source_uri: rtsp://localhost:8554/gate_door
+    is_virtual: true
+
+  - camera_id: floor_view
+    role: floor
+    source_uri: rtsp://localhost:8554/floor_view
+    is_virtual: true

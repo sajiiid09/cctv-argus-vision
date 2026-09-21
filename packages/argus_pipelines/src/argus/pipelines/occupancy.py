@@ -46,9 +46,7 @@ class SeatObservation:
 
 def seat_box(seat: SeatConfig, frame_width: int, frame_height: int) -> Box:
     x1, y1, x2, y2 = seat.region
-    return Box(
-        x1=x1 * frame_width, y1=y1 * frame_height, x2=x2 * frame_width, y2=y2 * frame_height
-    )
+    return Box(x1=x1 * frame_width, y1=y1 * frame_height, x2=x2 * frame_width, y2=y2 * frame_height)
 
 
 def overlap_fraction(person: Box, seat: Box) -> float:
@@ -170,6 +168,4 @@ def line_rates(observations: list[SeatObservation]) -> dict[str, float]:
     by_line: dict[str, list[bool]] = {}
     for observation in observations:
         by_line.setdefault(observation.line_id or "unassigned", []).append(observation.occupied)
-    return {
-        line: round(sum(states) / len(states), 4) for line, states in sorted(by_line.items())
-    }
+    return {line: round(sum(states) / len(states), 4) for line, states in sorted(by_line.items())}

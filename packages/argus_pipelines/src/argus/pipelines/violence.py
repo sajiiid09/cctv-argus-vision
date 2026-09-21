@@ -99,9 +99,7 @@ def proximity_feature(people: list[np.ndarray], shoulders: float) -> float:
     if reference <= 0:
         return 0.0
     closest = min(
-        float(np.linalg.norm(a - b))
-        for index, a in enumerate(torsos)
-        for b in torsos[index + 1 :]
+        float(np.linalg.norm(a - b)) for index, a in enumerate(torsos) for b in torsos[index + 1 :]
     )
     in_shoulders = closest / reference
     return float(max(0.0, min(1.0, 1.0 - in_shoulders / shoulders)))
@@ -192,9 +190,9 @@ class ViolenceTrigger:
         score = score_features(features, self.cfg)
         if score < self.cfg.trigger_threshold:
             return None
-        if self._last_candidate_at is not None and (
-            at - self._last_candidate_at
-        ) < timedelta(seconds=self.cfg.cooldown_s):
+        if self._last_candidate_at is not None and (at - self._last_candidate_at) < timedelta(
+            seconds=self.cfg.cooldown_s
+        ):
             # A scuffle is one queue item, not forty. The reviewer's attention is
             # the scarce resource here.
             return None

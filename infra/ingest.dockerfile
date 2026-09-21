@@ -13,5 +13,9 @@ COPY services ./services
 RUN uv sync --frozen --all-packages --group staging --no-dev
 
 COPY config ./config
+# The registry is the map from artefact name -> sha256 and licence; without it
+# `models_root()` raises and every ONNX backend refuses to construct. The
+# binaries themselves are never in the image (ADR-0026) -- they are mounted.
+COPY models/registry.yaml ./models/registry.yaml
 
 ENTRYPOINT ["uv", "run", "--no-sync", "python", "-m", "argus.ingest"]

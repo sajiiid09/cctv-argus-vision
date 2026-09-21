@@ -30,6 +30,8 @@ class OnnxModel:
         self._outputs = self._session.get_outputs()
         self._in_name = self._inputs[0].name
         self._out_names = [o.name for o in self._outputs]
+        # What the session GOT, which is not always what was asked for.
+        self.providers_active = list(self._session.get_providers())
 
     def _run(self, tensor: np.ndarray) -> list[Any]:
         return list(self._session.run(self._out_names, {self._in_name: tensor}))

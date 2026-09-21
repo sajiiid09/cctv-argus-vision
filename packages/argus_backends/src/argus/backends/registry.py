@@ -110,7 +110,15 @@ class BackendRegistry:
 
     def _construct(self, kind: Kind, name: str) -> Any:
         backend = self._entries[kind][name].factory()
-        log.info("%s backend=%s model=%s", kind, name, backend.model_ref)
+        # `name` is what was ASKED for; providers_active is what the session got.
+        # Logging only the first is how a CPU fallback passes for a GPU run.
+        log.info(
+            "%s backend=%s model=%s providers=%s",
+            kind,
+            name,
+            backend.model_ref,
+            getattr(backend, "providers_active", "n/a"),
+        )
         return backend
 
     # Detector-shaped wrappers kept because the golden parity suite calls them
@@ -157,6 +165,7 @@ def register_defaults() -> BackendRegistry:
         providers_for,
     )
     from argus.backends.scrfd import ScrfdFaceDetector
+    from argus.backends.yolo import YoloOnnxDetector
     from argus.backends.yolo_pose import YoloPoseOnnxEstimator
 
     probes: dict[str, Callable[[], bool]] = {
@@ -169,6 +178,28 @@ def register_defaults() -> BackendRegistry:
     _registry.register("detector", "onnx-cuda", OnnxCudaDetector, cuda_available)
     _registry.register("detector", "onnx-coreml", OnnxCoremlDetector, coreml_available)
     _registry.register("detector", "mock", MockDiskDetector, lambda: True)
+
+    # The YOLO detector, one entry per runtime, under its own names.
+    #
+    # Two artefacts, two families, two sets of parity numbers: `onnx-cuda` is
+    # `ssd_mobilenet_v1` (Apache-2.0, the ADR-0011 bring-up model) and
+    # `onnx-cuda-yolo` is `yolo26m` (AGPL-3.0, non-commercial only, ADR-0030).
+    # They are deliberately NOT one name with a swappable artefact: which model
+    # produced a detection is the first question in any argument about a
+    # crossing, and a config key that silently changes the answer is how the
+    # demo posture becomes the pilot posture.
+    #
+    # None of these is in DEFAULT_PREFERENCE, so nothing selects YOLO by
+    # accident -- `pipelines.detector_backend: onnx-cuda-yolo` is a sentence
+    # somebody had to write. Until `models/registry.yaml` pins a url and a
+    # sha256 for `yolo26m`, construction raises ModelArtefactError naming it.
+    for backend, probe in probes.items():
+        _registry.register(
+            "detector",
+            f"{backend}-yolo",
+            _bind(YoloOnnxDetector, backend, providers_for(backend)),
+            probe,
+        )
 
     for backend, probe in probes.items():
         _registry.register(

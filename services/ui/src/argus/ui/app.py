@@ -48,9 +48,7 @@ def humanise(seconds: int | None) -> str:
     return f"{seconds // 60}m {seconds % 60}s"
 
 
-def create_app(
-    config: AppConfig, db: Database | None = None, *, data: Any = queries
-) -> FastAPI:
+def create_app(config: AppConfig, db: Database | None = None, *, data: Any = queries) -> FastAPI:
     """`data` is the seam the route tests fake, which keeps them database-free.
 
     With no `db`, the connection is opened in the **lifespan**, which is the
@@ -72,9 +70,7 @@ def create_app(
             if owned and app.state.db is not None:
                 await app.state.db.close()
 
-    app = FastAPI(
-        title="Sparrow Vision console", docs_url=None, redoc_url=None, lifespan=lifespan
-    )
+    app = FastAPI(title="Sparrow Vision console", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.config = config
     app.state.db = db
     app.state.data = data

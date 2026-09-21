@@ -1,0 +1,1825 @@
+ ▐▛███▛█   Claude Code v2.1.277
+▝▜██████▀  Opus 5 · Claude Team
+  ▝▝ ▝▝    ~/Documents/argus-vision
+
+
+❯ Analyze the work done on this project tell me what is the current state and   
+  all the features he provides and is there anything done before I run this and 
+  test on the main server computer with graphics card. If you find any          
+  similarity or inconsistency, clear it  off report                             
+
+⏺ I'll analyze repo state. Start with docs and structure.
+
+  Read 2 files, listed 2 directories, ran 2 shell commands (ctrl+o to expand)
+
+⏺ Background command "Run fast test suite in background" completed (exit code 0)
+
+  Searched for 13 patterns, read 4 files, listed 2 directories, ran 27 shell commands (ctrl+o to expand)
+
+⏺ Analyzed repo. Ran what runs on this Mac (docker down, so rig/postgres tests
+  deselected).
+
+  Verified today
+
+  ┌─────────────────────────────────────────┬───────────────────────────────┐
+  │                  Check                  │            Result             │
+  ├─────────────────────────────────────────┼───────────────────────────────┤
+  │ pytest -m "not rig and not postgres"    │ 349 passed, 1 skipped         │
+  ├─────────────────────────────────────────┼───────────────────────────────┤
+  │ pytest -m golden (CPU leg)              │ 7 passed                      │
+  ├─────────────────────────────────────────┼───────────────────────────────┤
+  │ ARGUS_PARITY_BACKEND=onnx-coreml pytest │ 7 passed (CoreML leg green —  │
+  │  -m golden                              │ docs still say "pending")     │
+  ├─────────────────────────────────────────┼───────────────────────────────┤
+  │ ruff check .                            │ clean                         │
+  ├─────────────────────────────────────────┼───────────────────────────────┤
+  │ mypy                                    │ clean, 83 files               │
+  ├─────────────────────────────────────────┼───────────────────────────────┤
+  │ ruff format --check .                   │ FAILS — 7 committed files (CI │
+  │                                         │  job checks is red right now) │
+  ├─────────────────────────────────────────┼───────────────────────────────┤
+  │ rig replay 9/10, postgres store tests   │ not verified — docker not     │
+  │                                         │ running here                  │
+  └─────────────────────────────────────────┴───────────────────────────────┘
+
+  What exists (features)
+
+  ingest — RTSP connect/reconnect-backoff/stall watchdog, stream_gap rows,
+  encoded-packet ring (GOP-aligned, remux-first clips + decode fallback),
+  sampled decode at analysis_fps, canteen pipeline in-process (ADR-0033), floor
+  runner.
+  pipelines — geometry tracker (no re-ID), doorway line-cross with hysteresis
+  band, canteen writer (only doorway-event writer), face stage (quality gate,
+  best-of-K, threshold+margin), occupancy (anonymous seats), violence pose
+  trigger + cooldown, aim/drift check, gate tap contract + ZKT client + four-way
+  verify, metrics.
+  payroll — pairing state machine (per person+space, not per day), dwell,
+  overage, policy, recompute. Pure, no db/clock/vision. No export, test asserts
+  absence.
+  pairing service — loader (space join, gaps, lead-in window), one-transaction
+  persist + NOTIFY, RISKS.md §8 report.
+  enrol — consent double-enforced, --by mandatory, templates, images, purge 
+  --expired.
+  gate — tap-before-verify, dedupe, reader_gap, replay channel.
+  ui — login by role passphrase, canteen/person-day, gate review, violence
+  queue, monitoring, clip serve with access log incl. refusals.
+  store — 7 migrations, 24 tables, append-only guards, Postgres-as-bus.
+  rig — deterministic footage, manifests, RTSP serve, fault injection.
+
+  Not real yet: identity (every crossing unknown, fails open to zero), four
+  model artefacts unresolved, badge reader never spoken to, all numbers describe
+  rig disks.
+
+  Before you run on the NVIDIA box — blockers
+
+  Ordered. First four stop GPU path working at all.
+
+  1. decode: nvidia is a no-op. services/ingest/src/argus/ingest/streams.py:347
+  passes options["hwaccel"]="cuda" to av.open. That is an ffmpeg CLI flag, not
+  an AVOption — libav drops it silently. I proved it: bogus option, 8 frames
+  decoded, no error. So NVDEC never engages, and there is no probe and no
+  fallback — contradicting config/staging.yaml:3 ("falls back loudly") and
+  config.py:250 ("probe falls back to software"). PyAV 18 does support it
+  properly: av.open(uri, hwaccel=HWAccel(device_type="cuda", 
+  allow_software_fallback=True)). Also ARCHITECTURE.md:233 already says a pip
+  ffmpeg build usually has no NVDEC. Check on the box first:
+  uv run python -c "from av.codec.hwaccel import hwdevices_available; 
+  print(hwdevices_available())"
+  This Mac's wheel lists only videotoolbox. If the linux wheel has no cuda,
+  NVDEC needs a custom PyAV build — M1 exit is bigger than a config flag.
+
+  2. Container cannot find models/registry.yaml. infra/ingest.dockerfile copies
+  packages services config — never models/. infra/compose.linux.yaml mounts only
+  models/artifacts, sets no ARGUS_MODELS_ROOT. So models_root() raises
+  ModelArtefactError for any ONNX backend. Hidden today only because staging has
+  pipelines off. Fix: COPY models/registry.yaml ./models/ (or mount ../models).
+
+  3. CUDA EP will not load in that image. onnxruntime-gpu 1.30.0 pulls no
+  nvidia-* wheels (checked uv.lock) — it needs system CUDA + cuDNN. Base is
+  uv:python3.12-bookworm-slim, no CUDA runtime. Needs a CUDA base image or the
+  libs installed. Native uv sync --group staging on the host works if the
+  driver+CUDA are there.
+
+  4. config/staging.yaml runs no analysis. Loaded it: pipelines.enabled=False,
+  door_line count 0, no face/ui/gate sections. docker compose -f 
+  infra/compose.linux.yaml up proves streams only, not the canteen path. Need a
+  staging analysis config with door_line, inside_sign, analysis_fps per canteen
+  camera (copy from config/dev.yaml).
+
+  Also do before the run
+
+  - Publisher. compose.linux runs mediamtx with nothing feeding it — rig/ isn't
+    in the image. On the box: uv run python rig/synthetic/generate.py then
+    rig/bin/rig_serve.py on the host, else ingest reconnect-loops and fills
+    stream_gap.
+  - Only ingest is containerised. pairing, report, gate, ui, enrol have no
+    compose service — run them natively, which means a host env too.
+    ARCHITECTURE.md §5.4 says "everything containerised on Linux"; reality is
+    one service.
+  - Console. ui.bind_host is localhost-only by design (ADR-0028) and
+    staging.yaml sets no passphrases → nobody can log in. Use config/secrets.env
+    (chmod 600) + SSH tunnel; do not set a LAN bind without the ADR.
+  - timedatectl set-timezone Asia/Dhaka is cosmetic; config timezone is what
+    pays.
+  - CUDA parity leg (M2 exit): ARGUS_PARITY_BACKEND=onnx-cuda uv run pytest -m 
+    golden.
+  - Disk. No clip retention job exists anywhere (only enrol purge). var/clips
+    grows unbounded on a long run.
+
+  Inconsistencies (code vs docs)
+
+  1. NVDEC claim vs code — finding 1 above. Config comment and staging.yaml both
+     assert a probe that does not exist.
+  2. Silent CPU fallback is invisible. registry.py:_construct logs the requested
+     name; onnx_common.load_onnx_session never logs session.get_providers().
+     ORT lists CUDAExecutionProvider whenever the gpu wheel is installed, even
+     if its libs fail to load — so cuda_available() says yes and the session
+     quietly runs CPU. Directly against AGENTS.md §6 ("log backend and model
+     hash on every startup").
+  3. yolo26m is unreachable by design. YoloOnnxDetector is written and
+     unit-tested but registered nowhere; register_defaults() wires
+     SsdOnnxDetector (the Apache bring-up model) for all three detector
+     backends. Registry and docs call yolo26m the canteen/gate detector. Even
+     after the artefact is pinned, selecting it takes a code change.
+  4. Face path is two changes from working, not one.
+     services/ingest/.../pipelines.py:_face_stage raises NotImplementedError: 
+     "the enrolment service is not built yet" — but services/enrol is built and
+     CLAUDE.md calls it the only template path. FaceStage is constructed only in
+     tests; services/gate/main.py:73 passes verifier=None. So "just measure a
+     threshold" is not enough.
+  5. CI is red. ruff format --check . fails on 7 committed files under locked
+     ruff 0.16.7 (formatter reflowed to the 100-col limit). Docs present the
+     lint gate as green.
+  6. duplicate_window_s "must match" is unenforced. Comment at config.py:476
+     says canteen and payroll must agree; only
+     tests/unit/test_config_sections.py:68 compares defaults. Divergent YAML
+     loads silently — pipeline dedupes at one window, payroll at another.
+  7. CoreML leg is green but recorded as pending. PLAN M2 / CLAUDE.md say
+     pending; it passes here today. ADR-0022 asks that it be recorded.
+  8. Minor doc: CLAUDE.md "Status" and PLAN M1 both list NVDEC as the open exit,
+     which is right — but staging.yaml reads as if it is implemented.
+
+  Nothing changed on disk. Want me to fix the run-blockers — real PyAV hwaccel
+  wiring + loud fallback, models/registry.yaml into the image,
+  staging_canteen.yaml with door lines, actual-provider logging, and ruff format
+  — as one branch?
+
+✻ Sautéed for 6m 30s · done 4:47 AM
+
+❯ Do I need to fix this on the code or should I take it to the gpu box(ubuntu)  
+  install cuda and pyav 18 everything natively, then fix those?                 
+
+⏺ Both. Split by what the box can answer.
+
+  Fix here, before you go (deterministic, ~30 min)
+
+  None of these need a GPU. All are pure plumbing, and fixing them on the box
+  means editing over SSH while debugging CUDA at the same time.
+
+  - models/registry.yaml into the image — one COPY line. Unambiguous bug.
+  - staging canteen config with door_line/inside_sign/analysis_fps — otherwise
+    you land on the box and ingest analyses nothing.
+  - Log session.get_providers() after session creation. Do this first — it is
+    the instrument you need on the box. Without it you cannot tell CUDA from a
+    silent CPU fallback, and everything you measure there is worthless.
+  - ruff format — 7 files, makes CI green.
+  - Optionally loud NVDEC probe scaffolding (log what hwdevices_available()
+    returns at startup), so the box tells you the answer on first run.
+
+  Fix on the box (needs hardware evidence)
+
+  - NVDEC. The right design depends on whether the linux PyAV 18 wheel was built
+    with cuda in hwdevices_available(). If yes → av.open(hwaccel=HWAccel(...)),
+    small change. If no → custom ffmpeg/PyAV build, which is a different week.
+    Do not write that code blind on a Mac.
+  - CUDA EP in container (CUDA base image vs system libs) — depends on
+    driver/CUDA version actually installed.
+  - yolo26m registration — pointless until an artefact is pinned, and pinning is
+    a decision you make with real weights.
+  - Face wiring — needs measured thresholds, which need real faces. Not a box
+    problem either.
+
+  Native first on Ubuntu, container second
+
+  Answering your "install natively" — yes, native first. Reason: containerising
+  adds blocker 3 (CUDA base image) before you know whether anything works. Get
+  the native leg green, then containerise with a known-good baseline.
+  ARCHITECTURE.md §5.4 wants containers because that is what you operate — that
+  is the end state, not the bring-up path.
+
+  Order on the box:
+
+  sudo ubuntu-drivers install && nvidia-smi
+  docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi   # 
+  real check
+  uv sync --all-packages --group staging      # NEVER with --group cpu
+  uv run python -c "import onnxruntime as o; print(o.get_available_providers())"
+  uv run python -c "from av.codec.hwaccel import hwdevices_available as h; 
+  print(h())"
+  uv run pytest -m "not rig and not postgres" -q
+  docker compose -f infra/compose.dev.yaml up -d
+  uv run python models/fetch.py && uv run python rig/synthetic/generate.py
+  uv run python rig/bin/rig_serve.py
+  ARGUS_PARITY_BACKEND=onnx-cuda uv run pytest -m golden     # M2 exit
+  uv run pytest -q                                            # rig + postgres 
+  legs
+  uv run python -m argus.ingest --config config/rig_canteen.yaml   # mock 
+  detector, proves path
+
+  Two lines decide your week: the ORT providers list (does CUDA load?) and
+  hwdevices_available() (does NVDEC exist in the wheel?). Everything else
+  follows from those.
+
+  Want me to do the "fix here" set now, on a branch?
+
+✻ Sautéed for 33s · done 5:13 AM
+
+❯ /caveman                                                                      
+
+⏺ Caveman on. Full level.
+
+  Prior answer stand: split work.
+
+  Fix on Mac now (no GPU needed): registry.yaml into image, staging canteen
+  config, log session.get_providers(), ruff format, startup log of
+  hwdevices_available().
+
+  Fix on box (needs hardware truth): NVDEC design, CUDA-in-container, yolo26m
+  pin, face wiring.
+
+  Bring-up order: native --group staging first, container after. Two commands
+  decide week — ORT provider list, PyAV hwdevices list.
+
+  Pending question, unanswered: do I write Mac-side fix set now, on branch off
+  dev/init?
+
+✻ Churned for 8s · done 5:18 AM
+
+❯ yes, do the fix here set on the dev/init branch, Also, if we are facing       
+  problem with docker containers and cuda, The image where is more complicated  
+  I think so. I am going to use an install code                                 
+    natively on the GPU box and everything else will be installed natively not  
+  an image if that's more complicated so from your findings, everything that    
+  needs to be fixed here without the hard                                       
+    evidence do it into end you have any ambiguity clear it out andfor the GPU  
+  box don't do make a LINUX_SETUP markdown file With all the instructions and   
+  scripts there so on the gpu box, I will just                                  
+    follow the markdown file instructions for running the project and show      
+  demo, also make another instructions.md file where Instructions regarding ZKT 
+  RFID badge system set upAnd all the CCTV set                                  
+    both the RFID system and CCTV are on the same router and in same lan with   
+  the GPU box                                                                   
+
+⏺ Skill(managing-python-dependencies)
+  ⎿  Successfully loaded skill
+
+  Read 1 file, ran 6 shell commands (ctrl+o to expand)
+
+⏺ Now F1 — actual execution-provider logging.
+
+⏺ Bash(python3 - <<'PY'
+      import re, pathlib…)
+  ⎿  ok
+  ⎿  Updated packages/argus_backends/src/argus/backends/onnx_common.py (+40
+     -0)
+       9  from __future__ import annotations
+      10  
+      11  import hashlib
+      12 +import logging                                                 
+      13  import os
+      14  from dataclasses import dataclass
+      15  from functools import lru_cache
+     ...
+      19  
+      20  import yaml
+      21  
+      22 +log = logging.getLogger(__name__)                              
+      23 +                                                               
+      24  
+      25  class ModelArtefactError(Exception):
+      26      pass
+     ...
+      161      return installed
+      162  
+      163  
+      164 +def missing_providers(requested: list[str], active: list[str])
+          + -> list[str]:                                                
+      165 +    """Requested accelerators the session did not get.        
+      166 +                                                              
+      167 +    The CPU provider is not counted: it is the deliberate last
+          + entry of every                                               
+      168 +    preference list (``providers_for``), and its absence from 
+          +a session that got                                            
+      169 +    an accelerator is not a downgrade.                        
+      170 +    """                                                       
+      171 +    return [p for p in requested if p != "CPUExecutionProvider
+          +" and p not in active]                                        
+      172 +                                                              
+      173 +                                                              
+      174 +def log_session_providers(artefact: str, requested: list[str],
+          + active: list[str]) -> None:                                  
+      175 +    """Log what the session actually got, and shout when it is
+          + less.                                                        
+      176 +                                                              
+      177 +    onnxruntime lists ``CUDAExecutionProvider`` in ``get_avail
+          +able_providers()``                                            
+      178 +    whenever the *gpu* wheel is installed -- even on a box who
+          +se CUDA or cuDNN                                              
+      179 +    libraries fail to load. In that case the session is create
+          +d without                                                     
+      180 +    complaint and silently runs on the CPU. The only evidence 
+          +is                                                            
+      181 +    ``session.get_providers()``, so it is logged on every cons
+          +truction: a run                                               
+      182 +    that is ten times slower than it should be must say so at 
+          +startup rather                                                
+      183 +    than be discovered while someone times a demo (AGENTS.md §
+          +6).                                                           
+      184 +    """                                                       
+      185 +    absent = missing_providers(requested, active)             
+     … 22 more lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Bash(python3 - <<'PY'
+      import pathlib…)
+  ⎿  ok
+  ⎿  Updated packages/argus_backends/src/argus/backends/onnx_model.py (+2 
+     -0)
+      30          self._outputs = self._session.get_outputs()
+      31          self._in_name = self._inputs[0].name
+      32          self._out_names = [o.name for o in self._outputs]
+      33 +        # What the session GOT, which is not always what was as
+         +ked for.                                                       
+      34 +        self.providers_active = list(self._session.get_provider
+         +s())                                                           
+      35  
+      36      def _run(self, tensor: np.ndarray) -> list[Any]:
+      37          return list(self._session.run(self._out_names, {self._i
+          n_name: tensor}))
+  ⎿  Updated packages/argus_backends/src/argus/backends/registry.py (+9 -1)
+      110  
+      111      def _construct(self, kind: Kind, name: str) -> Any:
+      112          backend = self._entries[kind][name].factory()
+      113 -        log.info("%s backend=%s model=%s", kind, name, backend
+          -.model_ref)                                                   
+      113 +        # `name` is what was ASKED for; providers_active is wh
+          +at the session got.                                           
+      114 +        # Logging only the first is how a CPU fallback passes 
+          +for a GPU run.                                                
+      115 +        log.info(                                             
+      116 +            "%s backend=%s model=%s providers=%s",            
+      117 +            kind,                                             
+      118 +            name,                                             
+      119 +            backend.model_ref,                                
+      120 +            getattr(backend, "providers_active", "n/a"),      
+      121 +        )                                                     
+      122          return backend
+      123  
+      124      # Detector-shaped wrappers kept because the golden parity 
+           suite calls them
+  ⎿  Updated packages/argus_backends/src/argus/backends/ssd.py (+2 -0)
+      111          self._in_name = self._session.get_inputs()[0].name
+      112          self._out_names = [o.name for o in self._session.get_o
+           utputs()]
+      113          self.model_ref = str(self._model_ref)
+      114 +        # What the session GOT, which is not always what was a
+          +sked for.                                                     
+      115 +        self.providers_active = list(self._session.get_provide
+          +rs())                                                         
+      116  
+      117      def _raw_detect(self, frame: np.ndarray) -> Any:
+      118          if frame.ndim != 3 or frame.shape[2] != 3 or frame.dty
+           pe != np.uint8:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Now the NVDEC fix — real PyAV hwaccel, capability probe, loud fallback.
+
+⏺ Bash(python3 - <<'PY'
+      import pathlib…)
+  ⎿  ok
+  ⎿  Updated services/ingest/src/argus/ingest/streams.py (+65 -6)
+      21  from uuid import UUID
+      22  
+      23  import av
+      24 +from av.codec.hwaccel import HWAccel, hwdevices_available      
+      25  from argus.common.clock import Clock, SystemClock
+      26  from argus.common.config import CameraConfig, IngestConfig
+      27  from argus.ingest.ringbuffer import (
+     ...
+       99      pass
+      100  
+      101  
+      102 +# decode mode -> the libav hardware device that serves it. `so
+          +ftware` is not in                                             
+      103 +# here because it is the absence of one.                      
+      104 +HWACCEL_DEVICE = {"nvidia": "cuda"}                           
+      105 +                                                              
+      106 +                                                              
+      107 +def hwaccel_device(decode: str, available: list[str] | None = 
+          +None) -> str | None:                                          
+      108 +    """The hardware device to decode with, or None for softwar
+          +e.                                                            
+      109 +                                                              
+      110 +    Hardware decode lives or dies on how *this* ffmpeg was bui
+          +lt, never on what                                             
+      111 +    the box contains: a pip-installed PyAV wheel commonly ship
+          +s without NVDEC                                               
+      112 +    even on a machine with four GPUs (ARCHITECTURE.md §5.5). S
+          +o the question                                                
+      113 +    asked here is `hwdevices_available()` -- the devices this 
+          +libav was compiled                                            
+      114 +    with -- and the answer is decided once, at startup, rather
+          + than being                                                   
+      115 +    guessed per reconnect.                                    
+      116 +                                                              
+      117 +    Returning None for a configured accelerator is a fallback,
+          + and the caller                                               
+      118 +    says so at ERROR level. Silence would leave `decode: nvidi
+          +a` in the config                                              
+      119 +    describing something that never happened.                 
+      120 +    """                                                       
+      121 +    device = HWACCEL_DEVICE.get(decode)                       
+      122 +    if device is None:                                        
+      123 +        return None                                           
+      124 +    devices = hwdevices_available() if available is None else 
+          +available                                                     
+      125 +    if device not in devices:                                 
+      126 +        return None                                           
+      127 +    return device                                             
+      128 +                                                              
+      129 +                                                              
+      130  def _codec_params(video: Any) -> CodecParams:
+      131      """Snapshot what a muxer needs, at session open.
+     … 56 more lines (ctrl+o to expand)
+
+⏺ Bash(python3 - <<'PY'
+      import pathlib…)
+  ⎿  ok
+  ⎿  Updated services/ingest/src/argus/ingest/streams.py (+24 -6)
+      401              else None
+      402          )
+      403  
+      404 -        container = av.open(                                  
+      405 -            self.camera.source_uri,                           
+      406 -            options=options,                                  
+      407 -            timeout=read_timeout_s,                           
+      408 -            hwaccel=hwaccel,                                  
+      409 -        )                                                     
+      404 +        try:                                                  
+      405 +            container = av.open(                              
+      406 +                self.camera.source_uri,                       
+      407 +                options=options,                              
+      408 +                timeout=read_timeout_s,                       
+      409 +                hwaccel=hwaccel,                              
+      410 +            )                                                 
+      411 +        except Exception:                                     
+      412 +            if hwaccel is None:                               
+      413 +                raise                                         
+      414 +            # The build has the device; this machine could not
+          + initialise it (no                                            
+      415 +            # driver, no free GPU memory, a codec the device d
+          +oes not cover).                                               
+      416 +            # Downgrade once, permanently, rather than failing
+          + this attempt and                                             
+      417 +            # every reconnect after it with the same error.   
+      418 +            log.exception(                                    
+      419 +                "camera %s: opening with %s hardware decode fa
+          +iled -- falling back to "                                     
+      420 +                "SOFTWARE decode for the rest of this process"
+          +,                                                             
+      421 +                self.camera.camera_id,                        
+      422 +                self._hwaccel_device,                         
+      423 +            )                                                 
+      424 +            self._hwaccel_device = None                       
+      425 +            container = av.open(                              
+      426 +                self.camera.source_uri, options=options, timeo
+          +ut=read_timeout_s                                             
+      427 +            )                                                 
+      428          # NOTE: no idle reset here — the idle clock moves only
+            on real frames
+      429          try:
+      430              video = container.streams.video[0]
+
+⏺ Now tests for the decode decision, plus the config cross-check (F6) and the
+  stale face message (F7).
+
+⏺ Bash(python3 - <<'PY'
+      import pathlib…)
+  ⎿  ok
+  ⎿  Updated packages/argus_common/src/argus/common/config.py (+17 -0)
+      631      ui: UiConfig = field(default_factory=UiConfig)
+      632      cameras: list[CameraConfig] = field(default_factory=list)
+      633  
+      634 +    def __post_init__(self) -> None:                          
+      635 +        """One dedupe window, checked where it can actually di
+          +verge.                                                        
+      636 +                                                              
+      637 +        The defaults agreeing is not the property that matters
+          +: a YAML file                                                 
+      638 +        setting one of the two is. The pipeline dedupes crossi
+          +ngs in process and                                            
+      639 +        payroll dedupes the same events again on read, so two 
+          +different windows                                             
+      640 +        mean the second pass can drop an event the first kept 
+          +-- and nothing                                                
+      641 +        would report that, because both halves are behaving as
+          + configured.                                                  
+      642 +        """                                                   
+      643 +        if self.pipelines.canteen.duplicate_window_s != self.p
+          +ayroll.duplicate_window_s:                                    
+      644 +            raise ConfigError(                                
+      645 +                "pipelines.canteen.duplicate_window_s "       
+      646 +                f"({self.pipelines.canteen.duplicate_window_s}
+          +) and "                                                       
+      647 +                f"payroll.duplicate_window_s ({self.payroll.du
+          +plicate_window_s}) differ. "                                  
+      648 +                "They dedupe the same crossings at two stages 
+          +and must be one number."                                      
+      649 +            )                                                 
+      650 +                                                              
+      651  
+      652  _NESTED: dict[type, dict[str, type[Any]]] = {
+      653      AppConfig: {
+  ⎿  Updated services/ingest/src/argus/ingest/pipelines.py (+11 -6)
+       96  def _face_stage(config: AppConfig) -> FaceStage | None:
+       97      """Faces are opt-in and, for now, always off.
+       98  
+       99 -    Enrolment and a measured threshold both have to exist befo
+          -re identity can                                               
+      100 -    mean anything (ADR-0010), and until then every crossing is
+          - `unknown` --                                                 
+      101 -    which is the fail-open outcome, not a missing feature.    
+       99 +    Enrolment exists (`services/enrol`); what does not exist i
+          +s a measured                                                  
+      100 +    threshold and the wiring between the two. Until both land 
+          +every crossing is                                             
+      101 +    `unknown`, which is the fail-open outcome and not a missin
+          +g feature                                                     
+      102 +    (ADR-0010).                                               
+      103      """
+      104      if not config.face.enabled:
+      105          return None
+      106      raise NotImplementedError(
+      106 -        "face.enabled is true but the enrolment service is not
+          - built yet: there "                                           
+      107 -        "are no templates to match against, and no measured th
+          -reshold to match "                                            
+      108 -        "at (ADR-0010). Run with face.enabled false until both
+          - exist."                                                      
+      107 +        "face.enabled is true, but the canteen pipeline has no
+          + face stage wired "                                           
+      108 +        "to it yet. Two things are missing, in this order: a c
+          +anteen 1:N "                                                  
+      109 +        "threshold measured from real faces (ADR-0010 forbids 
+          +a default), and "                                             
+      110 +        "the code here that builds a FaceStage from the regist
+          +ry's face "                                                   
+      111 +        "detector and embedder and hands it the enrolled templ
+          +ates. "                                                       
+      112 +        "`argus-enrol` already produces those templates. Until
+          + then run with "                                              
+      113 +        "face.enabled false: every crossing stays unknown, whi
+          +ch charges nobody."                                           
+      114      )
+      115  
+      116  
+
+⏺ Bash(cat >> tests/unit/test_streams.py <<'PY'…)
+  ⎿  """The config sections added with the services, and the values they re
+     fuse.
+     … +17 lines (ctrl+o to expand)
+  ⎿  Updated tests/unit/test_config_sections.py (+14 -0)
+      101          assert config.timezone == "Asia/Dhaka"
+      102          assert config.payroll.shadow_mode is True
+      103          assert config.face.enabled is False, f"{name} must not
+            claim identity works yet"
+      104 +                                                              
+      105 +                                                              
+      106 +def test_a_config_that_splits_the_dedupe_window_is_refused(tmp
+          +_path) -> None:                                               
+      107 +    """Defaults agreeing is not the property that matters; a Y
+          +AML file setting                                              
+      108 +    one of the two is."""                                     
+      109 +    from argus.common.config import load_config               
+      110 +                                                              
+      111 +    path = tmp_path / "split.yaml"                            
+      112 +    path.write_text(                                          
+      113 +        "payroll:\n  duplicate_window_s: 3.0\npipelines:\n  ca
+          +nteen:\n"                                                     
+      114 +        "    duplicate_window_s: 9.0\n"                       
+      115 +    )                                                         
+      116 +    with pytest.raises(ConfigError, match="duplicate_window_s"
+          +):                                                            
+      117 +        load_config(path)                                     
+  ⎿  Updated tests/unit/test_streams.py (+21 -0)
+       83  
+       84      with pytest.raises(ConfigError):
+       85          IngestConfig(stall_timeout_s=bad)
+       86 +                                                              
+       87 +                                                              
+       88 +def test_software_decode_asks_for_no_hardware_device() -> None
+          +:                                                             
+       89 +    from argus.ingest.streams import hwaccel_device           
+       90 +                                                              
+       91 +    assert hwaccel_device("software", available=["cuda", "vaap
+          +i"]) is None                                                  
+       92 +                                                              
+       93 +                                                              
+       94 +def test_nvidia_decode_uses_cuda_when_the_build_has_it() -> No
+          +ne:                                                           
+       95 +    from argus.ingest.streams import hwaccel_device           
+       96 +                                                              
+       97 +    assert hwaccel_device("nvidia", available=["cuda"]) == "cu
+          +da"                                                           
+       98 +                                                              
+       99 +                                                              
+      100 +def test_nvidia_decode_falls_back_when_the_build_lacks_cuda() 
+          +-> None:                                                      
+      101 +    """A pip PyAV wheel commonly has no NVDEC even on a box fu
+          +ll of GPUs                                                    
+      102 +    (ARCHITECTURE.md §5.5). Config asking for it must not beco
+          +me a claim."""                                                
+      103 +    from argus.ingest.streams import hwaccel_device           
+      104 +                                                              
+      105 +    assert hwaccel_device("nvidia", available=["videotoolbox"]
+          +) is None                                                     
+      106 +    assert hwaccel_device("nvidia", available=[]) is None     
+
+⏺ Bash(python3 - <<'PY'
+      import pathlib…)
+  ⎿  .......................
+        [100%]
+     23 passed in 0.09s
+  ⎿  Updated tests/unit/test_config_sections.py (+0 -2)
+      106  def test_a_config_that_splits_the_dedupe_window_is_refused(tmp
+           _path) -> None:
+      107      """Defaults agreeing is not the property that matters; a Y
+           AML file setting
+      108      one of the two is."""
+      109 -    from argus.common.config import load_config               
+      110 -                                                              
+      109      path = tmp_path / "split.yaml"
+      110      path.write_text(
+      111          "payroll:\n  duplicate_window_s: 3.0\npipelines:\n  ca
+           nteen:\n"
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Now the container model-root fix and a staging config that actually analyses.
+⏺ Bash(python3 - <<'PY'
+      import pathlib…)
+  ⎿  ok
+  ⎿  Updated infra/compose.linux.yaml (+2 -0)
+      34          condition: service_healthy
+      35      environment:
+      36        ARGUS_DATABASE__DSN: postgresql://argus:argus@postgres:54
+          32/argus
+      37 +      # registry.yaml is baked into the image; the binaries are
+         + the mount below.                                              
+      38 +      ARGUS_MODELS_ROOT: /app/models                           
+      39      volumes:
+      40        - ../config:/etc/argus/config:ro
+      41        - ../var/clips:/app/var/clips
+  ⎿  Updated infra/ingest.dockerfile (+4 -0)
+      13  RUN uv sync --frozen --all-packages --group staging --no-dev
+      14  
+      15  COPY config ./config
+      16 +# The registry is the map from artefact name -> sha256 and lice
+         +nce; without it                                                
+      17 +# `models_root()` raises and every ONNX backend refuses to cons
+         +truct. The                                                     
+      18 +# binaries themselves are never in the image (ADR-0026) -- they
+         + are mounted.                                                  
+      19 +COPY models/registry.yaml ./models/registry.yaml               
+      20  
+      21  ENTRYPOINT ["uv", "run", "--no-sync", "python", "-m", "argus.in
+          gest"]
+
+⏺ Write(config/staging_canteen.yaml)
+  ⎿  Wrote 101 lines to config/staging_canteen.yaml
+       1 # The NVIDIA box, running the canteen pipeline over the virtual 
+       2 #
+       3 # `config/staging.yaml` records streams and nothing else: it has
+       4 # so ingest is a recorder there. This file is the one that analy
+       5 # what the demo and the M1/M2 bring-up on the box use (LINUX_SET
+         UP.md).
+       7 # Two things it deliberately does NOT claim:
+       8 #
+         sks and the mock
+         ng, direction,
+     … +108 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Bash(uv run ruff check --fix . && uv run ruff format . && uv run ruff check .
+      && uv run ruff format --check . && uv run mypy 2>&1 | tail -5)
+  ⎿  Found 1 error (1 fixed, 0 remaining).
+     152 files left unchanged
+     All checks passed!
+     … +2 lines (ctrl+o to expand)
+  ⎿  Updated services/ingest/src/argus/ingest/streams.py (+1 -1)
+      21  from uuid import UUID
+      22  
+      23  import av
+      24 -from av.codec.hwaccel import HWAccel, hwdevices_available      
+      24  from argus.common.clock import Clock, SystemClock
+      25  from argus.common.config import CameraConfig, IngestConfig
+      26  from argus.ingest.ringbuffer import (
+     ...
+      30      PacketRingBuffer,
+      31      RingBuffer,
+      32  )
+      33 +from av.codec.hwaccel import HWAccel, hwdevices_available      
+      34  
+      35  log = logging.getLogger(__name__)
+      36  
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+⏺ Bash(python3 - <<'PY'
+      import pathlib…)
+  ⎿  -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.htm
+     l
+     =========================== short test summary info ==================
+     … +4 lines (ctrl+o to expand)
+  ⎿  Updated tests/unit/test_onnx_wrappers.py (+4 -0)
+      39      def get_outputs(self) -> list[_Spec]:
+      40          return self._outputs
+      41  
+      42 +    def get_providers(self) -> list[str]:                      
+      43 +        # The wrappers record what the session GOT, so the stan
+         +d-in answers too.                                              
+      44 +        return ["CPUExecutionProvider"]                        
+      45 +                                                               
+      46      def run(self, names, feed):  # mirrors the ort signature
+      47          self.last_tensor = next(iter(feed.values()))
+      48          return self._results
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Bash(python3 - <<'PY'
+      import pathlib…)
+  ⎿  -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.htm
+     l
+     353 passed, 1 skipped, 109 deselected, 1 warning in 7.27s
+  ⎿  Updated tests/pairing/test_policy_mapping.py (+11 -2)
+       3  from __future__ import annotations
+       4  
+       5  import pytest
+       6 -from argus.common.config import AppConfig, ConfigError, Payroll
+         -Config                                                         
+       6 +from argus.common.config import (                              
+       7 +    AppConfig,                                                 
+       8 +    CanteenConfig,                                             
+       9 +    ConfigError,                                               
+      10 +    PayrollConfig,                                             
+      11 +    PipelinesConfig,                                           
+      12 +)                                                              
+      13  from argus.pairing.policy import lead_in_seconds, policy_from_c
+          onfig
+      14  
+      15  
+     ...
+      27  
+      28  
+      29  def test_thresholds_carry_through() -> None:
+      30 +    # The dedupe window moves in both places at once or the con
+         +fig is refused:                                                
+      31 +    # the pipeline and payroll dedupe the same crossings at two
+         + stages.                                                       
+      32      config = AppConfig(
+      33          payroll=PayrollConfig(
+      34              allowance_s=120, min_dwell_s=30, max_dwell_s=7200, 
+          duplicate_window_s=2.5
+      27 -        )                                                      
+      35 +        ),                                                     
+      36 +        pipelines=PipelinesConfig(canteen=CanteenConfig(duplica
+         +te_window_s=2.5)),                                             
+      37      )
+      38      policy = policy_from_config(config)
+      39      assert (policy.allowance_s, policy.min_dwell_s, policy.max_
+          dwell_s) == (120, 30, 7200)
+
+  Searched for 2 patterns, ran 4 shell commands (ctrl+o to expand)
+
+⏺ Code green. Now the box docs.
+
+⏺ Write(LINUX_SETUP.md)
+  ⎿  Wrote 463 lines to LINUX_SETUP.md
+       1 # LINUX_SETUP.md
+       3 Bring-up of Sparrow Vision on the NVIDIA box, **natively**, step
+          by step, from a
+       5 
+       6 Read this one on the box. `AGENTS.md` §5–6 stays the authority o
+       7 commands mean; this file is the order to run them in and what ea
+         ch one proves.
+       9 **Native, not containerised.** `ARCHITECTURE.md` §5.4 wants Linu
+         x fully
+         -up is a
+     … +598 lines (ctrl+o to expand)
+
+⏺ Write(INSTRUCTIONS.md)
+  ⎿  Wrote 390 lines to INSTRUCTIONS.md
+       1 # INSTRUCTIONS.md — cameras and the badge reader on the factory 
+       2 
+       3 How to put real hardware in front of this system: the CCTV camer
+       4 ZKTeco badge reader, both on the same router and LAN as the GPU 
+         box.
+       6 `LINUX_SETUP.md` gets the box running on the virtual rig. This f
+         ile replaces the
+         and a CUDA
+       8 problem at the same time cost more than the sum of the two.
+      10 Two warnings to carry through the whole file:
+     … +516 lines (ctrl+o to expand)
+
+⏺ Bash(python3 - <<'PY'
+      import pathlib…)
+  ⎿  ok
+     All checks passed!
+     154 files already formatted
+     … +4 lines (ctrl+o to expand)
+  ⎿  Updated README.md (+10 -0)
+      55  | Wondering why X was chosen | `DECISIONS.md` |
+      56  | Touching payroll logic | `ARCHITECTURE.md` §7.3, `AGENTS.md` 
+          §1–2, §7 |
+      57  | Setting up a machine | `AGENTS.md` §5–6 (macOS leg unverified
+          ) |
+      58 +| Bringing up the NVIDIA box | `LINUX_SETUP.md` |              
+      59 +| Installing cameras or the badge reader | `INSTRUCTIONS.md` | 
+      60  | Running any of it | `AGENTS.md` §5 — one command per service 
+          |
+      61  | Worried about privacy or audits | `RISKS.md` |
+      62  | Planning the next few weeks | `PLAN.md` |
+     ...
+      82  - `PLAN.md` — milestones to demo and pilot; what is blocked on 
+          hardware.
+      83  - `GLOSSARY.md` — shared vocabulary.
+      84  
+      85 +Two operational runbooks sit beside them. They are procedure, n
+         +ot decisions — each one is a machine or a building being set up
+         +, and both                                                     
+      86 +defer to the six above on anything they appear to contradict.  
+      87 +                                                               
+      88 +- `LINUX_SETUP.md` — native bring-up of the NVIDIA box, step by
+         + step,                                                         
+      89 +  through to the demo.                                         
+      90 +- `INSTRUCTIONS.md` — putting real cameras and the ZKTeco badge
+         + reader on                                                     
+      91 +  the factory LAN.                                             
+      92 +                                                               
+      93  ## Environment, in one line
+      94  
+      95  Dev is macOS/arm64 where Docker cannot reach the GPU, so infere
+          nce runs natively.
+
+  Ran 5 shell commands (ctrl+o to expand)
+
+⏺ Done. 3 commits on dev/init, tree clean, all gates green.
+
+  Code fixed
+
+  NVDEC wired for real. options["hwaccel"]="cuda" was an ffmpeg CLI flag passed
+  as an AVOption — libav dropped it silently. Now av.open(..., 
+  hwaccel=HWAccel(device_type=..., allow_software_fallback=True)), device chosen
+  once at startup from hwdevices_available(). No cuda in build → ERROR log
+  naming the check, software decode. Device present but init fails → one
+  permanent downgrade, not the same error every reconnect. hwaccel_device() pure
+  → 3 tests, no GPU needed.
+
+  Silent CPU fallback now visible. session.get_providers() logged on every
+  session; ERROR when an accelerator was requested and not obtained.
+  providers_active on every backend, printed in the registry startup line.
+
+  Dedupe window. AppConfig.__post_init__ refuses a config where canteen and
+  payroll windows differ. Caught an existing test building exactly that config —
+  fixed the test to move both.
+
+  Face refusal message named the wrong missing piece (said enrolment unbuilt; it
+  is built). Now names the two real gaps in order.
+
+  Container model root. models/registry.yaml baked into image +
+  ARGUS_MODELS_ROOT in compose. Kept it honest even though you go native.
+
+  ruff format — 7 files, own commit so the rest reads as change not reflow. CI
+  checks was red before today.
+
+  config/staging_canteen.yaml new: door lines on both canteen cameras, decode: 
+  nvidia, mock detector. staging.yaml records only — that was undocumented.
+
+  Docs
+
+  LINUX_SETUP.md — native Ubuntu path end to end: driver, CUDA runtime + cuDNN
+  (with "install what the error names, not what this doc says"), --group 
+  staging, the two decisive probe commands, proving CUDA actually loads, infra
+  containers, rig, test ladder up to the CUDA parity leg, running each service,
+  error-keyed troubleshooting table, demo order, systemd units, closing list of
+  what stays unproven.
+
+  INSTRUCTIONS.md — LAN plan table, no port forwarding, one NTP source,
+  placement per M8 survey, H.264 + GOP=fps (clips are GOP-aligned remux),
+  two-client check, how to measure door_line in frame fractions and confirm
+  inside_sign by walking the door, then ZKT: device setup, badge assignment,
+  replay-before-live, outcome meanings, tcpdump when the dialect differs.
+
+  README points at both, marked as runbooks subordinate to the six documents.
+
+  Two things left open, deliberately
+
+  Camera credential trap. DB CHECK refuses user:pass@ in a stored URI and can't
+  tell ${VAR} from a password — so
+  rtsp://${CAMERA_USER}:${CAMERA_PASSWORD}@host/path is refused too. Verified by
+  regex. Workaround documented and works today: one variable holding the whole
+  URI (source_uri: ${CANTEEN_01_URI}). Loosening the CHECK is a
+  security-relevant schema decision, so I didn't make it alone.
+  config/secrets.env.example still suggests the split form.
+
+  yolo26m unreachable. YoloOnnxDetector written and tested, registered nowhere;
+  detector kind is SSD MobileNet on all three backends. Changing the default
+  detector artefact is an ADR-0011/0030 decision, not a patch.
+
+  Want either of those taken further?
+
+✻ Baked for 10m 35s · done 5:29 AM
+
+❯ elaborare                                                                     
+  yolo26m unreachable. YoloOnnxDetector written and tested, registered nowhere; 
+  detector kind is SSD MobileNet on all three backends. Changing the default    
+  detector artefact is an ADR-0011/0030 decision, not a patch.                  
+  is the yolo model not going to work?                                          
+
+  Searched for 1 pattern, ran 3 shell commands (ctrl+o to expand)
+
+⏺ Model fine. Nothing broken in wrapper. Three separate things sit between it
+  and running — and one correction to what I said last turn.
+
+  Why it is unreachable today
+
+  Blocker 1 — no artefact. models/registry.yaml has yolo26m with sha256: null,
+  url: null, status: unresolved. models/fetch.py refuses to download it;
+  artefact_path() raises naming the registry. No file, no session. Same for
+  yolo26m_pose, scrfd_10g_bnkps, glintr100.
+
+  Blocker 2 — not registered. register_defaults() wires the detector kind to
+  SsdOnnxDetector for all three backends:
+
+  _registry.register("detector", "onnx-cpu",  OnnxCpuDetector,  cpu_available)
+  _registry.register("detector", "onnx-cuda", OnnxCudaDetector, cuda_available)
+  _registry.register("detector", "onnx-coreml", OnnxCoremlDetector,
+  coreml_available)
+
+  OnnxCudaDetector is SsdOnnxDetector with CUDA providers. So
+  pipelines.detector_backend picks the runtime (cpu/cuda/coreml/mock), never the
+  artefact. There is no config value that says yolo.
+
+  Asymmetry worth seeing: pose, face_detector, face_embedder are registered to
+  the real wrappers (YoloPoseOnnxEstimator, ScrfdFaceDetector, ArcFaceEmbedder).
+  For those, only blocker 1 applies. detector is the one kind still pointing at
+  the bring-up model.
+
+  Wrapper itself looks sound
+
+  YoloOnnxDetector(OnnxModel), artefact yolo26m, 640×640 default from graph.
+  Handles both export layouts — (1,N,6) end-to-end (NMS already applied) and
+  (1,84,N) raw (NMS applied locally, iou 0.45). Refuses any other shape at
+  construction with the observed shape. Preprocessing is the standard YOLO
+  recipe: letterbox pad 114, CHW, /255.0, and the inverse mapping returned
+  rather than recomputed. COCO ids 0-based (0: person), correctly distinct from
+  SSD's 1-based. Tested against synthetic sessions — 13 tests in
+  tests/unit/test_onnx_wrappers.py.
+
+  So: expected to work. Never run against real weights.
+
+  Correction to my last message
+
+  I said it needs an ADR-0011/0030 decision. Narrower than that: ADR-0030 
+  already accepted AGPL weights for this personal non-commercial deployment, and
+  yolo26m is named in it — the licence gate was exercised 2026-09-17. What
+  remains is not a licence argument. It is:
+
+  1. Pin a real ONNX export: url + sha256 in registry.yaml, drop status: 
+     unresolved. Export offline with ultralytics; only the weights carry AGPL,
+     no AGPL code enters the runtime (that is ADR-0030's construction).
+  2. Register it — decide whether it replaces SSD for the detector kind or joins
+     as a separate name, e.g. onnx-cuda-yolo. ~20 lines.
+  3. Commit a golden reference for yolo, and re-measure parity tolerances. SSD's
+     reference proves nothing about it — test_artefact_hash_matches_reference
+     fails by design if you try.
+  4. Record the result. ADR-0030 is accepted; a short ADR or an amendment noting
+     which artefact the detector kind resolves to, and that it stays
+     non-commercial.
+
+  Half a day of work, plus a real verification pass on the box. The reason it is
+  not a patch is step 3: registering it without a measured reference makes the
+  detector swap invisible to the one test that measures cross-backend
+  divergence.
+
+  What can bite on first real weights
+
+  - Layout refusal. Export shape neither (1,N,6) nor (1,84,N) → construction
+    raises with the shape. That is the wrapper doing its job, not a failure.
+  - Class id space. If your export emits 1-based ids, person silently becomes
+    bicycle. Check one frame by eye.
+  - Input size. Dynamic axes come back as strings, wrapper falls back to
+    640×640. If the export wants another size, that is a wrapper edit.
+  - Tolerances. YOLO's CUDA-vs-CPU divergence is not SSD's. Measure, then write
+    the number down.
+
+  Meanwhile, what actually runs
+
+  ┌────────────┬────────────────┬──────────────────────────────────────────┐
+  │  Footage   │ Detector today │                Useful for                │
+  ├────────────┼────────────────┼──────────────────────────────────────────┤
+  │ Rig        │                │ Geometry, tracking, direction, clips,    │
+  │ (bright    │ mock           │ pairing — the whole logic path           │
+  │ disks)     │                │                                          │
+  ├────────────┼────────────────┼──────────────────────────────────────────┤
+  │ Real       │ onnx-cuda =    │ Works, but it is the Apache bring-up     │
+  │ cameras    │ SSD MobileNet  │ model chosen for licence and             │
+  │            │                │ availability, not accuracy               │
+  └────────────┴────────────────┴──────────────────────────────────────────┘
+
+  So real cameras + current code = person detection happens, just with the
+  weaker model. Not blocked, under-powered.
+
+  Want me to do steps 2–3 now (register as a separate *-yolo name, plus the
+  reference-generation path), so pinning the artefact on the box is the only
+  thing left?
+
+✻ Crunched for 1m 3s · done 5:31 AM
+
+❯ Give me a step-by-step instruction of what I am to do next when I go onto the 
+  GPU and for wait, what do you mean by that? Is it the pre-recorded data? I    
+  am going to use a test or do I have to download it from Internet? I thought   
+  Yolo was already pretrained model. can i check the accuracy using recordings  
+  first then live? or do i have to do it about live from day 1                  
+
+⏺ Good questions. Two different things are being called "data", and they are
+  unrelated.
+
+  Read 1 file, ran 2 shell commands (ctrl+o to expand)
+
+⏺ Two different things are both being called "data". Untangle first.
+
+  1. YOLO is pretrained. Nothing to train, ever.
+
+  You are right — YOLO26 ships pretrained on COCO, and person is class 0. This
+  project never trains anything. status: unresolved in models/registry.yaml does
+  not mean "model needs training". It means: nobody has put the .onnx file's 
+  download URL and its sha256 in the registry yet. Lines 4–5 of that entry are
+  literally sha256: null, url: null.
+
+  Rule from ADR-0026: no model binary is ever committed to git. Every artefact
+  is fetched by URL and verified by hash. So until someone fills those two
+  lines, the code has no file to load and refuses loudly instead of guessing.
+
+  One-time job, ~15 minutes, internet needed once.
+
+  2. The two kinds of "data"
+
+  ┌──────────┬─────────────────┬──────────────────────────┬────────────────┐
+  │          │      What       │   Where it comes from    │  Exists now?   │
+  ├──────────┼─────────────────┼──────────────────────────┼────────────────┤
+  │ Model    │ yolo26m.onnx,   │ Internet, once. Export   │ No — you       │
+  │ weights  │ ~50 MB          │ with ultralytics or take │ fetch/export   │
+  │          │                 │  a published ONNX export │ it             │
+  ├──────────┼─────────────────┼──────────────────────────┼────────────────┤
+  │          │ Video the       │ Rig generates synthetic  │ Synthetic yes, │
+  │ Footage  │ pipeline        │ locally; real footage    │  real no       │
+  │          │ watches         │ comes from your cameras  │                │
+  └──────────┴─────────────────┴──────────────────────────┴────────────────┘
+
+  They are independent. You can have the model and no real footage (that is
+  where you are heading this week), or real footage and the weak model (that is
+  where you are now).
+
+  3. Rig footage tells you nothing about accuracy
+
+  rig/synthetic/generate.py draws bright disks moving across a frame. Not
+  people. Not images of people. Coloured circles. The mock detector finds bright
+  circles.
+
+  That is deliberate and it is useful — it proves RTSP, decode, tracking,
+  line-crossing, clip extraction, event writes, pairing, fail-open, with ground
+  truth known to the millisecond. It proves zero about whether a camera can see
+  a person in a doorway.
+
+  Point a real YOLO at rig footage and it finds nothing, because there is
+  nothing there. Expected, not a bug.
+
+  4. Recordings first — yes, and the repo is built for exactly that
+
+  You do not have to go live on day one, and you should not. The rig is not a
+  fixture, it is infrastructure: rig_common.ffmpeg_cmd serves any mp4 over RTSP
+  with -c copy, looped. Drop your own recording into rig/footage/, write a
+  manifest for it, and it becomes a virtual camera playing real footage. Tests
+  always consume through RTSP, so replay and live are the same code path.
+
+  tests/rig/test_canteen_replay.py is the measuring harness — it reads the
+  manifest's ground_truth.crossings list and compares. Your recording gets the
+  same treatment: you hand-label what actually happened, replay, count.
+
+  So the accuracy path is: record → label → replay → measure → tune → live.
+  Live-from-day-one is the thing to avoid.
+
+  ---
+
+  Step by step
+
+  Phase 0 — box works (no cameras, no YOLO)
+
+  Follow LINUX_SETUP.md §1–8 in order. Gates to clear:
+
+  1. nvidia-smi prints the GPU.
+  2. CUDA/cuDNN installed; providers_active contains CUDAExecutionProvider
+     (§4.4).
+  3. hwdevices_available() — records whether NVDEC exists in this PyAV build.
+  4. Fast tests green; full suite green with infra + rig up.
+  5. ARGUS_PARITY_BACKEND=onnx-cuda uv run pytest -m golden — the open M2 exit.
+     Record the result.
+  6. Ingest on config/staging_canteen.yaml, pair, report, open a clip in the
+     console. That is the demo (§10).
+
+  End of Phase 0 you can demo the whole system. Still zero accuracy claims.
+
+  Phase 1 — get YOLO real (one-time, internet)
+
+  Export on any machine, in a throwaway venv, never the project env —
+  ultralytics is AGPL and ADR-0030's whole construction is that only the weights
+  enter this repo, not the code:
+
+  python3 -m venv /tmp/ul && /tmp/ul/bin/pip install ultralytics
+  /tmp/ul/bin/yolo export model=yolo26m.pt format=onnx
+  sha256sum yolo26m.onnx
+
+  The wrapper accepts either export layout — NMS baked in (1,N,6) or raw
+  (1,84,N) — so either flavour works.
+
+  Then pin it. Put the file somewhere the box can read and use a file:// URL so
+  fetch.py still verifies rather than being bypassed:
+
+    yolo26m:
+      file: artifacts/yolo26m.onnx
+      sha256: <the sha256sum output>
+      url: file:///srv/argus-artefacts/yolo26m.onnx
+      licence: AGPL-3.0
+      commercial_use: false     # keep this line — ADR-0030 and a structural 
+  test both read it
+
+  Drop the status: unresolved line. Then:
+
+  uv run python models/fetch.py        # now fetches + verifies yolo26m
+
+  Registration + a golden reference for it is the work I offered last message —
+  say the word and it lands before you leave.
+
+  Sanity-check it on any video with real people in it (a phone clip of you
+  walking through a doorway is enough) before trusting it. Not on rig footage.
+
+  Phase 2 — cameras up, then record
+
+  INSTRUCTIONS.md end to end. Then, before wiring anything to pairing, just
+  record:
+
+  ffmpeg -rtsp_transport tcp -i "<SUB URL>" -c copy -t 3600
+  canteen_door_01_peak.mp4
+
+  Record the peak — lunch rush, the crowded minutes. That is where tailgating,
+  occlusion and backlight live, and where a clean off-peak recording will lie to
+  you. Consenting volunteers first if real workers are not covered yet
+  (RISKS.md, ADR-0027).
+
+  Phase 3 — label, replay, measure
+
+  cp canteen_door_01_peak.mp4 rig/footage/
+
+  Manifest rig/manifests/canteen_peak.yaml — licence: and consent: are
+  mandatory, a structural test enforces both:
+
+  name: canteen_peak
+  file: canteen_door_01_peak.mp4
+  resolution: [1280, 720]
+  fps: 15
+  duration_s: 3600
+  codec: h264
+  licence: site recording, this deployment only
+  consent: volunteers, recorded 2026-10-xx, see enrolment log
+  local_start: '13:00:00'
+  timezone: Asia/Dhaka
+  role: canteen_door
+  ground_truth:
+    door_line_x: 640
+    crossings:
+      - {t: 12.4, direction: enter}
+      - {t: 19.8, direction: exit}
+      # …watch it once with a notepad. This list IS the measurement.
+
+  Serve and measure — copy tests/rig/test_canteen_replay.py, change STREAM to
+  your manifest name and swap MockDiskDetector for the real detector:
+
+  uv run python rig/bin/rig_serve.py
+  uv run pytest tests/rig/test_canteen_peak.py -v
+
+  Numbers you now own, for the first time honestly: crossings found vs labelled,
+  directions correct, timing error, false crossings per hour. Tune against them
+  — band, min_samples_per_side, analysis_fps, person_score in the canteen
+  config. Re-run. The recording never changes, so every tuning change is
+  comparable.
+
+  Faces come here too. A measured canteen_match_threshold needs real faces
+  through a real door (ADR-0010). Same recordings, enrolled volunteers.
+
+  Phase 4 — live
+
+  Only after Phase 3 numbers are ones you would defend. Swap source_uri from the
+  rig back to the cameras, run ingest, and compare live rates against your
+  replay rates. Divergence means the recording was not representative — usually
+  lighting at a different hour.
+
+  Shadow mode stays on throughout. There is no export, and a test asserts its
+  absence.
+
+  ---
+
+  Short version: YOLO is pretrained, you download it once, the rig is circles
+  and proves plumbing only, and yes — record first, measure against your own
+  labels, go live after. Want me to land the YOLO registration +
+  reference-generation path now so Phase 1 is just "paste the sha256"?
+
+✻ Churned for 1m 27s · done 5:35 AM
+
+❯ This yolo registration                                                        
+  And everything that is required to get live does any of this require any      
+  money or is it free?                                                          
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Short answer: all software free, zero recurring cost, no cloud, no API fees.
+  Money appears in two places only — hardware, and a licence boundary your own
+  ADR-0030 already flags.
+
+  Free — every piece of software in the stack
+
+  ┌─────────────────────────────┬─────────────┬─────────────────────────────┐
+  │            Thing            │    Cost     │           Licence           │
+  ├─────────────────────────────┼─────────────┼─────────────────────────────┤
+  │ Ubuntu, NVIDIA driver,      │ £0          │ free to use                 │
+  │ CUDA, cuDNN                 │             │                             │
+  ├─────────────────────────────┼─────────────┼─────────────────────────────┤
+  │ uv, Python, ONNX Runtime,   │ £0          │ permissive                  │
+  │ PyAV, numpy                 │             │                             │
+  ├─────────────────────────────┼─────────────┼─────────────────────────────┤
+  │ Postgres, mediamtx,         │ £0          │ permissive                  │
+  │ FastAPI, uvicorn            │             │                             │
+  ├─────────────────────────────┼─────────────┼─────────────────────────────┤
+  │ Docker (infra containers    │ £0          │ free tier fine, no Desktop  │
+  │ only)                       │             │ needed on Linux             │
+  ├─────────────────────────────┼─────────────┼─────────────────────────────┤
+  │ yolo26m.onnx,               │ £0 to       │ AGPL-3.0                    │
+  │ yolo26m_pose.onnx           │ download    │                             │
+  ├─────────────────────────────┼─────────────┼─────────────────────────────┤
+  │ InsightFace                 │ £0 to       │ research-only               │
+  │ scrfd_10g_bnkps, glintr100  │ download    │                             │
+  ├─────────────────────────────┼─────────────┼─────────────────────────────┤
+  │ The registration work       │ £0          │ your repo                   │
+  └─────────────────────────────┴─────────────┴─────────────────────────────┘
+
+  Nothing here phones home, nothing is metered, nothing expires. Inference runs
+  on your GPU. No per-detection cost, no subscription, no vendor account. Run it
+  for a year and the bill is electricity.
+
+  AGPL and research-only are free as in price, restricted as in use. That is the
+  whole catch, and it is not a cost today.
+
+  Costs money — hardware
+
+  ┌──────────────────┬──────────────────────────────────────────────────────┐
+  │       Item       │                        Notes                         │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ GPU box          │ Have it                                              │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ Cameras          │ Factory may already have CCTV — PLAN.md M7 assumes   │
+  │                  │ existing Imou / Dahua DVR. If so, £0                 │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ PoE switch,      │ Only for new or relocated cameras. Doorway placement │
+  │ cable, mounts,   │  usually means relocating                            │
+  │ labour           │                                                      │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ ZKT reader +     │ May already exist for attendance                     │
+  │ cards            │                                                      │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │                  │ Recommended. Mains instability decides the TensorRT  │
+  │ UPS              │ AOT question and a hard power cut mid-write is how   │
+  │                  │ databases get corrupted                              │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ Disk for clips   │ No retention job exists yet — clips only accumulate. │
+  │                  │  Size it, or add the job                             │
+  └──────────────────┴──────────────────────────────────────────────────────┘
+
+  The one place money could appear later — read this
+
+  ADR-0030 permits the AGPL and research-only weights because this is a personal
+  non-commercial test environment. Its own trigger clause:
+
+  ▎ Changes it. Any move toward commercial use, a paying customer, or deployment
+  ▎ at a real factory. Any of those reactivates ADR-0011.
+
+  Installing cameras and the ZKT reader in the garments factory is that trigger,
+  by the ADR's own words. Not my rule — yours, signed off 2026-09-17.
+
+  So before Phase 2, one decision, three ways out:
+
+  Path: A. Stays genuinely non-commercial — your own test, your own volunteers,
+  nobody's pay affected, no customer
+  Cost: £0
+  Accuracy: Full — YOLO26 + InsightFace
+  ────────────────────────────────────────
+  Path: B. Real factory deployment, permissive models only — return to
+  ADR-0011's
+  reasoning; swap to Apache/MIT artefacts
+  Cost: £0
+  Accuracy: Lower. Today that means SSD MobileNet (2018). Candidates worth
+  evaluating: YOLOX, RTMDet/RTMPose (verify each licence yourself before
+  adopting)
+  ────────────────────────────────────────
+  Path: C. Real factory deployment, keep these models
+  Cost: Ultralytics Enterprise licence — priced on request, not public. Face
+  side
+  is harder: antelopev2 weights are research-only and not simply licensable, so
+   it likely means a commercial face SDK
+  Accuracy: Full
+
+  Path B's free-model gap is real on faces specifically — permissively licensed
+  face recognition weights are genuinely scarce, more than detection. That is
+  the expensive corner if this goes commercial.
+
+  Also independent of licences, and free but not cheap in time: RISKS.md §13
+  wants a Bangladeshi labour lawyer before anything touches pay, and §12 wants
+  buyer-compliance review. Those are the real gates on a factory pilot, not the
+  model licence.
+
+  What I would do
+
+  Phase 0 and Phase 1 cost nothing and commit you to nothing — the box, CUDA,
+  parity, YOLO registered, measured on your own recordings. Do that first.
+  Decide A/B/C before cameras watch workers, not after, because the answer
+  changes which artefact you pin.
+
+  You said "this yolo registration" — read that as go-ahead? If yes I'll land:
+  register the YOLO detector as its own backend name, a reference-generation
+  path for it, and a registry entry ready for your sha256. Confirm and I'll
+  start.
+
+✻ Cooked for 54s · done 5:40 AM
+
+❯ should we do the yolo detector register here on or the gpu box and how do we  
+  do that                                                                       
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Here on the Mac. Reason is the parity contract, not convenience.
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Now implementing: registry entries, artefact-aware reference generator,
+  artefact-aware parity suite.
+
+⏺ Bash(python3 - <<'PY'
+      import pathlib…)
+  ⎿  ok
+     detectors: ['mock', 'onnx-coreml', 'onnx-coreml-yolo', 'onnx-cpu', 'on
+     nx-cpu-yolo', 'onnx-cuda', 'onnx-cuda-yolo']
+     … +2 lines (ctrl+o to expand)
+  ⎿  Updated packages/argus_backends/src/argus/backends/registry.py (+23 
+     -0)
+      165          providers_for,
+      166      )
+      167      from argus.backends.scrfd import ScrfdFaceDetector
+      168 +    from argus.backends.yolo import YoloOnnxDetector          
+      169      from argus.backends.yolo_pose import YoloPoseOnnxEstimator
+      170  
+      171      probes: dict[str, Callable[[], bool]] = {
+     ...
+      179      _registry.register("detector", "onnx-coreml", OnnxCoremlDe
+           tector, coreml_available)
+      180      _registry.register("detector", "mock", MockDiskDetector, l
+           ambda: True)
+      181  
+      182 +    # The YOLO detector, one entry per runtime, under its own 
+          +names.                                                        
+      183 +    #                                                         
+      184 +    # Two artefacts, two families, two sets of parity numbers:
+          + `onnx-cuda` is                                               
+      185 +    # `ssd_mobilenet_v1` (Apache-2.0, the ADR-0011 bring-up mo
+          +del) and                                                      
+      186 +    # `onnx-cuda-yolo` is `yolo26m` (AGPL-3.0, non-commercial 
+          +only, ADR-0030).                                              
+      187 +    # They are deliberately NOT one name with a swappable arte
+          +fact: which model                                             
+      188 +    # produced a detection is the first question in any argume
+          +nt about a                                                    
+      189 +    # crossing, and a config key that silently changes the ans
+          +wer is how the                                                
+      190 +    # demo posture becomes the pilot posture.                 
+      191 +    #                                                         
+      192 +    # None of these is in DEFAULT_PREFERENCE, so nothing selec
+          +ts YOLO by                                                    
+      193 +    # accident -- `pipelines.detector_backend: onnx-cuda-yolo`
+          + is a sentence                                                
+      194 +    # somebody had to write. Until `models/registry.yaml` pins
+          + a url and a                                                  
+      195 +    # sha256 for `yolo26m`, construction raises ModelArtefactE
+          +rror naming it.                                               
+      196 +    for backend, probe in probes.items():                     
+      197 +        _registry.register(                                   
+      198 +            "detector",                                       
+      199 +            f"{backend}-yolo",                                
+      200 +            _bind(YoloOnnxDetector, backend, providers_for(bac
+          +kend)),                                                       
+      201 +            probe,                                            
+      202 +        )                                                     
+      203 +                                                              
+      204      for backend, probe in probes.items():
+      205          _registry.register(
+      206              "pose",
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Now the reference generator and parity suite, made artefact-aware.
+
+⏺ Write(tests/golden/make_reference.py)
+  ⎿  Added 33 lines, removed 3 lines
+       5  Run on the reference machine only; the output JSON is committed
+          .
+       6  
+       7      ARGUS_MODELS_ROOT=models uv run --no-sync python tests/gold
+          en/make_reference.py
+       8 +    ARGUS_MODELS_ROOT=models uv run --no-sync python tests/gold
+         +en/make_reference.py yolo26m                                   
+       9 +                                                               
+      10 +One reference **per artefact**, named after it. A reference is 
+         +a claim about one                                              
+      11 +model file: `reference/ssd_mobilenet_v1.json` says nothing abou
+         +t `yolo26m`, and                                               
+      12 +comparing a YOLO run against SSD's numbers would fail on the ar
+         +tefact-hash                                                    
+      13 +assertion first, which is the suite working rather than the sui
+         +te being awkward.                                              
+      14 +                                                               
+      15 +Regenerating a committed reference is a decision, not a fix. If
+         + a reference                                                   
+      16 +stops matching and the artefact hash has not changed, something
+         + in                                                            
+      17 +preprocessing or decoding moved and that is the thing to look a
+         +t — overwriting                                                
+      18 +the file makes the divergence permanent and invisible.         
+      19  """
+      20  
+      21  from __future__ import annotations
+      22  
+      23 +import argparse                                                
+      24  import json
+      25  import sys
+      26  from pathlib import Path
+     ...
+      28  sys.path.insert(0, str(Path(__file__).resolve().parent))
+      29  
+      30  import pngio
+      19 -from argus.backends.onnx_backends import OnnxCpuDetector       
+      31 +from argus.backends.registry import get_detector               
+      32  
+      33  THRESHOLD = 0.5
+      34  
+      35 +# artefact -> the CPU backend name that loads it. The reference
+         + leg is always                                                 
+      36 +# CPU (ARCHITECTURE.md §5.3); the CUDA and CoreML legs compare 
+         +against what                                                   
+      37 +# this writes.                                                 
+      38 +CPU_BACKEND = {                                                
+      39 +    "ssd_mobilenet_v1": "onnx-cpu",                            
+      40 +    "yolo26m": "onnx-cpu-yolo",                                
+      41 +}                                                              
+      42  
+      43 +                                                               
+      44  def main() -> None:
+      25 -    detector = OnnxCpuDetector()                               
+      45 +    parser = argparse.ArgumentParser(description=__doc__)      
+      46 +    parser.add_argument(                                       
+      47 +        "artefact",                                            
+      48 +        nargs="?",                                             
+      49 +        default="ssd_mobilenet_v1",                            
+      50 +        choices=sorted(CPU_BACKEND),                           
+      51 +        help="which model artefact to produce a reference for",
+      52 +    )                                                          
+      53 +    args = parser.parse_args()                                 
+      54 +                                                               
+      55 +    detector = get_detector(CPU_BACKEND[args.artefact])        
+      56      frames_dir = Path(__file__).resolve().parent / "frames"
+      57      reference: dict[str, object] = {
+      58          "backend": detector.name,
+     ...
+      78              ],
+      79          }
+      80          print(f"{path.stem}: {len(dets)} detections")
+      51 -    out = Path(__file__).resolve().parent / "reference" / "ssd_
+         -mobilenet_v1.json"                                             
+      81 +    out = Path(__file__).resolve().parent / "reference" / f"{ar
+         +gs.artefact}.json"                                             
+      82      out.parent.mkdir(exist_ok=True)
+      83      out.write_text(json.dumps(reference, indent=2, sort_keys=Tr
+          ue) + "\n")
+      84      print(f"wrote {out}")
+
+⏺ Bash(python3 - <<'PY'
+      import pathlib…)
+  ⎿  ok
+     -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.htm
+     l
+     … +5 lines (ctrl+o to expand)
+  ⎿  Updated tests/golden/test_parity.py (+18 -2)
+       9  how small the drift was (face embeddings will enforce that at M
+          3).
+      10  
+      11  Run a non-default leg with ``ARGUS_PARITY_BACKEND=onnx-cuda uv 
+          run pytest -m golden``.
+      12 +                                                               
+      13 +The artefact is selected the same way::                        
+      14 +                                                               
+      15 +    ARGUS_PARITY_ARTEFACT=yolo26m ARGUS_PARITY_BACKEND=onnx-cud
+         +a-yolo \                                                       
+      16 +        uv run pytest -m golden                                
+      17 +                                                               
+      18 +A reference belongs to one model file, so artefact and backend 
+         +move together;                                                 
+      19 +mixing them trips the artefact-hash assertion first, by design.
+      20  """
+      21  
+      22  from __future__ import annotations
+     ...
+      52  # the same assertions against the same artefact hash by setting
+           this. Without it
+      53  # the CUDA leg -- an outstanding M2 exit criterion -- cannot be
+           run at all.
+      54  PARITY_BACKEND = os.environ.get("ARGUS_PARITY_BACKEND", "onnx-c
+          pu")
+      55 +# Which model file this run is about. `yolo26m` is the ADR-0030
+         + artefact and is                                               
+      56 +# unresolved until somebody pins a url and a sha256 for it, so 
+         +a run naming it                                                
+      57 +# skips with that message rather than failing -- a leg that can
+         +not run is not a                                               
+      58 +# leg that disagrees.                                          
+      59 +PARITY_ARTEFACT = os.environ.get("ARGUS_PARITY_ARTEFACT", "ssd_
+         +mobilenet_v1")                                                 
+      60  
+      61  
+      62  def _detector():
+     ...
+      67  
+      68  
+      69  def _reference():
+      57 -    ref_path = GOLDEN / "reference" / "ssd_mobilenet_v1.json"  
+      70 +    ref_path = GOLDEN / "reference" / f"{PARITY_ARTEFACT}.json"
+      71      if not ref_path.exists():
+      59 -        pytest.skip("no committed reference outputs; run make_r
+         -eference.py")                                                  
+      72 +        pytest.skip(                                           
+      73 +            f"no committed reference for {PARITY_ARTEFACT}; run
+         + "                                                             
+      74 +            f"`make_reference.py {PARITY_ARTEFACT}` on the CPU 
+         +reference machine"                                             
+      75 +        )                                                      
+      76      return json.loads(ref_path.read_text())
+      77  
+      78  
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Bash(cat >> tests/unit/test_registry_kinds.py <<'PY'…)
+  ⎿  ..........
+        [100%]
+     10 passed in 0.08s
+  ⎿  Updated tests/unit/test_registry_kinds.py (+27 -0)
+       84      # The construction log is the answer to "which backend pro
+           duced this number".
+       85      assert "pose backend=mock" in caplog.text
+       86      assert "face_embedder backend=mock model=mock-embed@000000
+           000000" in caplog.text
+       87 +                                                              
+       88 +                                                              
+       89 +def test_yolo_is_registered_per_runtime_and_never_preferred() 
+          +-> None:                                                      
+       90 +    """Two artefacts, two families, two sets of parity numbers
+          + (ADR-0030).                                                  
+       91 +                                                              
+       92 +    `onnx-cuda` is the Apache-2.0 bring-up SSD; `onnx-cuda-yol
+          +o` is the AGPL,                                               
+       93 +    non-commercial YOLO. Selecting the second has to be a sent
+          +ence somebody                                                 
+       94 +    wrote in config, because which model produced a detection 
+          +is the first                                                  
+       95 +    question in any argument about a crossing.                
+       96 +    """                                                       
+       97 +    from argus.backends.registry import _ensure_registered    
+       98 +                                                              
+       99 +    registered = _ensure_registered().registered("detector")  
+      100 +    for name in ("onnx-cpu-yolo", "onnx-cuda-yolo", "onnx-core
+          +ml-yolo"):                                                    
+      101 +        assert name in registered                             
+      102 +        assert name not in DEFAULT_PREFERENCE                 
+      103 +                                                              
+      104 +                                                              
+      105 +def test_an_unresolved_artefact_raises_rather_than_dropping_ou
+          +t() -> None:                                                  
+      106 +    """A probe answers "is this runtime usable", never "is the
+          + artefact                                                     
+      107 +    fetched" -- so an unpinned artefact must fail loudly at co
+          +nstruction and                                                
+      108 +    not let something slower serve the request instead."""    
+      109 +    from argus.backends.onnx_common import ModelArtefactError 
+      110 +    from argus.backends.registry import get_detector          
+      111 +                                                              
+      112 +    with pytest.raises(ModelArtefactError, match="yolo26m is u
+          +nresolved"):                                                  
+      113 +        get_detector("onnx-cpu-yolo")                         
+
+⏺ Bash(python3 - <<'PY'
+      import pathlib…)
+  ⎿  -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.htm
+     l
+     355 passed, 1 skipped, 109 deselected, 1 warning in 7.30s
+     … +3 lines (ctrl+o to expand)
+  ⎿  Updated models/registry.yaml (+7 -0)
+      26    # requires each of them to be named in DECISIONS.md, which is
+           what stops the
+      27    # demo posture quietly becoming the pilot posture.
+      28  
+      29 +  # To resolve this entry: put the sha256 of the exact .onnx fi
+         +le in `sha256`,                                                
+      30 +  # a url `models/fetch.py` can reach in `url` (a `file:///...`
+         + path is a valid                                               
+      31 +  # url and keeps the hash check in the loop), and DELETE the `
+         +status` line.                                                  
+      32 +  # Then `make_reference.py yolo26m` on the CPU reference machi
+         +ne, commit                                                     
+      33 +  # `tests/golden/reference/yolo26m.json`, and run the CUDA leg
+         + on the box with                                               
+      34 +  # ARGUS_PARITY_ARTEFACT=yolo26m ARGUS_PARITY_BACKEND=onnx-cud
+         +a-yolo.                                                        
+      35 +  # `commercial_use: false` stays whatever else changes (ADR-00
+         +30).                                                           
+      36    yolo26m:
+      37      file: artifacts/yolo26m.onnx
+      38      sha256: null
+
+⏺ Bash(python3 - <<'PY'
+      import pathlib…)
+  ⎿  ok
+     9399301 feat(backends): register the YOLO detector under its own names
+  ⎿  Updated LINUX_SETUP.md (+40 -0)
+      286  at §4.4; a skip is not a pass. Record the result in `DECISIONS
+           .md` (ADR-0022
+      287  asks for exactly that) and update `PLAN.md` M2.
+      288  
+      289 +Once `yolo26m` is pinned (§7.1), its leg runs beside SSD's and
+          + against its own                                              
+      290 +committed reference:                                          
+      291 +                                                              
+      292 +```bash                                                       
+      293 +ARGUS_MODELS_ROOT="$PWD/models" ARGUS_PARITY_ARTEFACT=yolo26m 
+          +\                                                             
+      294 +  ARGUS_PARITY_BACKEND=onnx-cuda-yolo uv run pytest -m golden 
+          +-q                                                            
+      295 +```                                                           
+      296 +                                                              
+      297  Step 3 includes `tests/rig/test_canteen_replay.py`, which repl
+           ays the manifest
+      298  through RTSP and expects nine of ten labelled crossings with e
+           very direction
+      299  correct. That is the end-to-end proof, and the tenth is a know
+           n merge of two
+     ...
+      301  
+      302  ---
+      303  
+      304 +### 7.1 Resolving the YOLO artefact                           
+      305 +                                                              
+      306 +The detector the canteen path is meant to use (`yolo26m`, ADR-
+          +0030) is                                                      
+      307 +registered as `onnx-cpu-yolo` / `onnx-cuda-yolo` / `onnx-corem
+          +l-yolo` and is                                                
+      308 +**unresolved**: `models/registry.yaml` pins no url and no sha2
+          +56, so                                                        
+      309 +constructing it raises a `ModelArtefactError` naming that file
+          +. Nothing selects                                             
+      310 +it by accident — SSD stays the default for every plain backend
+          + name.                                                        
+      311 +                                                              
+      312 +The model itself is pretrained; there is nothing to train here
+          +, ever. What is                                               
+      313 +missing is the file and its hash.                             
+      314 +                                                              
+      315 +1. Obtain `yolo26m.onnx`. ADR-0030's construction is that the 
+          +artefact is a                                                 
+      316 +   **pre-exported ONNX**, so no AGPL code enters this runtime.
+          + If you export it                                             
+      317 +   yourself with `ultralytics`, do it in a throwaway virtualen
+          +v, never in this                                              
+      318 +   project's environment.                                     
+      319 +2. `sha256sum yolo26m.onnx`.                                  
+      320 +3. Fill in `sha256:` and `url:` in `models/registry.yaml` and 
+          +**delete the                                                  
+      321 +   `status: unresolved` line**. A `file:///srv/...` path is a 
+          +valid url and                                                 
+      322 +   keeps `models/fetch.py`'s hash check in the loop. Leave    
+      323 +   `commercial_use: false` alone.                             
+      324 +4. `uv run python models/fetch.py` — fetches and verifies.    
+      325 +5. Produce the reference **on a CPU box** (the reference leg i
+          +s always CPU,                                                 
+      326 +   `ARCHITECTURE.md` §5.3) and commit it:                     
+     … 12 more lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Here, on the Mac. Done — committed. Reason is the parity contract: the golden
+  reference must be produced on the CPU leg (ARCHITECTURE.md §5.3). The box's
+  job is to compare CUDA against that reference. If you generate the reference
+  on the box you have nothing independent to compare to.
+
+  What landed
+
+  Registered as onnx-cpu-yolo, onnx-cuda-yolo, onnx-coreml-yolo — one name per
+  runtime, not a swappable artefact behind the existing names. Two families do
+  not share parity numbers, and "which model made this detection" is the first
+  question in any crossing argument.
+
+  None is in DEFAULT_PREFERENCE, so nothing picks YOLO by accident. SSD stays
+  the default everywhere. Selecting it is a sentence in config:
+  detector_backend: onnx-cuda-yolo.
+
+  Today it fails correctly:
+
+  ModelArtefactError: artefact yolo26m is unresolved: models/registry.yaml pins
+  no url or sha256 for it, so there is nothing to verify and nothing to run.
+
+  Golden suite now follows the artefact. make_reference.py yolo26m writes
+  reference/yolo26m.json; parity reads ARGUS_PARITY_ARTEFACT and skips with an
+  actionable message when that reference is not committed — instead of comparing
+  YOLO output against SSD's numbers.
+
+  +2 tests, 355 passing, lint/format/mypy clean.
+
+  How you finish it — 7 steps
+
+  Steps 1–5 here on the Mac, 6–7 on the box.
+
+  # 1. get the file. Export in a THROWAWAY venv, never the project env —
+  #    ADR-0030 works because no AGPL *code* enters this runtime, only weights
+  python3 -m venv /tmp/ul && /tmp/ul/bin/pip install ultralytics
+  /tmp/ul/bin/yolo export model=yolo26m.pt format=onnx
+  mkdir -p ~/artefacts && mv yolo26m.onnx ~/artefacts/
+
+  # 2. hash it
+  shasum -a 256 ~/artefacts/yolo26m.onnx
+
+  3. In models/registry.yaml, fill sha256:, set url: 
+  file:///Users/you/artefacts/yolo26m.onnx, and delete the status: unresolved 
+  line. Leave commercial_use: false. The recipe is written in the file itself
+  now.
+
+  # 4. fetch + verify (a file:// url keeps the hash check in the loop)
+  uv run python models/fetch.py
+
+  # 5. produce and commit the reference — CPU, on this machine
+  ARGUS_MODELS_ROOT=models uv run python tests/golden/make_reference.py yolo26m
+  ARGUS_PARITY_ARTEFACT=yolo26m ARGUS_PARITY_BACKEND=onnx-cpu-yolo uv run pytest
+  -m golden -q
+  git add models/registry.yaml tests/golden/reference/yolo26m.json
+
+  Then scp the .onnx to the box (or host it where the box can fetch it — the
+  hash makes the transport irrelevant), and there:
+
+  # 6. the CUDA leg against your committed CPU reference — the number that 
+  matters
+  ARGUS_MODELS_ROOT="$PWD/models" ARGUS_PARITY_ARTEFACT=yolo26m \
+    ARGUS_PARITY_BACKEND=onnx-cuda-yolo uv run pytest -m golden -q
+
+  # 7. only then point a pipeline at it
+  #    config: pipelines.detector_backend: onnx-cuda-yolo
+
+  Step 6 will likely fail the first time on tolerances — IOU_TOLERANCE = 0.95,
+  SCORE_TOLERANCE = 0.05 were measured for SSD. YOLO's divergence is its own.
+  When it fails, read the numbers, decide the tolerance, write down why. Do not
+  regenerate the reference to make it pass; that makes the divergence permanent
+  and invisible.
+
+  Two things that can bite at step 1: if your ultralytics has no yolo26m.pt,
+  stop and tell me — the registry name and ADR-0030 both say yolo26m, and
+  quietly pinning a different model under that name is the kind of thing the
+  hash mechanism exists to prevent. And if the export's output tensor is neither
+  (1,N,6) nor (1,84,N), construction refuses with the shape it saw.
+
+  Want me to do steps 1–5 now? Needs a ~2 GB torch download into /tmp, and I'd
+  stop before committing so you can see the reference first.
+
+✻ Cogitated for 3m 11s · done 5:46 AM

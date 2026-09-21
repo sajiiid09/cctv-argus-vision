@@ -91,8 +91,7 @@ def expand(raw: Any, secrets: dict[str, str], *, env: dict[str, str] | None = No
             # half-substituted rtsp://admin:${PW}@10.0.0.5/ in an error message
             # is a credential in a log.
             raise ConfigError(
-                f"{name} is not set (put it in {SECRETS_PATH} at mode 600, or in the "
-                "environment)"
+                f"{name} is not set (put it in {SECRETS_PATH} at mode 600, or in the environment)"
             )
 
         return _VAR.sub(one, text)
@@ -115,9 +114,7 @@ def redact(name: str, value: Any) -> Any:
     """
     if isinstance(value, dict):
         inherited = _SECRET_FIELD.search(name)
-        return {
-            key: redact(name if inherited else key, item) for key, item in value.items()
-        }
+        return {key: redact(name if inherited else key, item) for key, item in value.items()}
     if not isinstance(value, str) or not value:
         return value
     if _SECRET_FIELD.search(name):
@@ -136,7 +133,8 @@ class RedactedRepr:
 
     def __repr__(self) -> str:
         rendered = ", ".join(
-            f"{f.name}={redact(f.name, getattr(self, f.name))!r}" for f in fields(self)  # type: ignore[arg-type]
+            f"{f.name}={redact(f.name, getattr(self, f.name))!r}"
+            for f in fields(self)  # type: ignore[arg-type]
         )
         return f"{type(self).__name__}({rendered})"
 
@@ -630,6 +628,23 @@ class AppConfig(RedactedRepr):
     gate: GateConfig = field(default_factory=GateConfig)
     ui: UiConfig = field(default_factory=UiConfig)
     cameras: list[CameraConfig] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """One dedupe window, checked where it can actually diverge.
+
+        The defaults agreeing is not the property that matters: a YAML file
+        setting one of the two is. The pipeline dedupes crossings in process and
+        payroll dedupes the same events again on read, so two different windows
+        mean the second pass can drop an event the first kept -- and nothing
+        would report that, because both halves are behaving as configured.
+        """
+        if self.pipelines.canteen.duplicate_window_s != self.payroll.duplicate_window_s:
+            raise ConfigError(
+                "pipelines.canteen.duplicate_window_s "
+                f"({self.pipelines.canteen.duplicate_window_s}) and "
+                f"payroll.duplicate_window_s ({self.payroll.duplicate_window_s}) differ. "
+                "They dedupe the same crossings at two stages and must be one number."
+            )
 
 
 _NESTED: dict[type, dict[str, type[Any]]] = {

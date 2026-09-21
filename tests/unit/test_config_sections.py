@@ -101,3 +101,14 @@ def test_the_shipped_configs_all_load() -> None:
         assert config.timezone == "Asia/Dhaka"
         assert config.payroll.shadow_mode is True
         assert config.face.enabled is False, f"{name} must not claim identity works yet"
+
+
+def test_a_config_that_splits_the_dedupe_window_is_refused(tmp_path) -> None:
+    """Defaults agreeing is not the property that matters; a YAML file setting
+    one of the two is."""
+    path = tmp_path / "split.yaml"
+    path.write_text(
+        "payroll:\n  duplicate_window_s: 3.0\npipelines:\n  canteen:\n    duplicate_window_s: 9.0\n"
+    )
+    with pytest.raises(ConfigError, match="duplicate_window_s"):
+        load_config(path)

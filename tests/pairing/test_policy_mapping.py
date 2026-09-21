@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import pytest
-from argus.common.config import AppConfig, ConfigError, PayrollConfig
+from argus.common.config import (
+    AppConfig,
+    CanteenConfig,
+    ConfigError,
+    PayrollConfig,
+    PipelinesConfig,
+)
 from argus.pairing.policy import lead_in_seconds, policy_from_config
 
 
@@ -21,10 +27,13 @@ def test_shadow_mode_cannot_be_turned_off_in_config() -> None:
 
 
 def test_thresholds_carry_through() -> None:
+    # The dedupe window moves in both places at once or the config is refused:
+    # the pipeline and payroll dedupe the same crossings at two stages.
     config = AppConfig(
         payroll=PayrollConfig(
             allowance_s=120, min_dwell_s=30, max_dwell_s=7200, duplicate_window_s=2.5
-        )
+        ),
+        pipelines=PipelinesConfig(canteen=CanteenConfig(duplicate_window_s=2.5)),
     )
     policy = policy_from_config(config)
     assert (policy.allowance_s, policy.min_dwell_s, policy.max_dwell_s) == (120, 30, 7200)
