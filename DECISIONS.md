@@ -888,5 +888,19 @@ again — a pipeline that stops analysing is never silent. CPU contention betwee
 decode and inference now lives in one process and one GIL, which makes
 `analysis_fps` a real budget rather than a knob; the per-session thread in
 `argus.pipelines.runtime` exists for this reason. The M1 exit criterion "runs in
-containers with GPU decode" stays open and is *not* closed by this decision — a
-successful demo must not be allowed to quietly close it.
+containers with GPU decode" was intentionally left open by this decision; the
+2026-09-24 verification record closes only the synthetic/native leg, not the
+real-camera or production-container claims. A successful demo must not be
+allowed to quietly close those.
+
+## Verification record — 2026-09-24 (not a new ADR)
+
+On the Ubuntu 24.04 RTX 4070 Ti workstation, the locked `onnxruntime-gpu==1.30.0`
+session reported an active `CUDAExecutionProvider`; the SSD golden suite passed
+7/7 on both CPU and CUDA. PyAV 18.1.0 reported `cuda` hardware acceleration and
+native ingest logged `hardware decode via cuda` for all four virtual streams.
+The full test suite passed 465 tests with one hardware-reader skip. This closes
+the M1 synthetic GPU-decode and M2 SSD CUDA legs for this box only; it does not
+change ADR-0022, prove real-camera compatibility, establish sizing, or measure
+accuracy. The chosen runtime profile and local port arrangement are documented
+in `LINUX_SETUP.md`.

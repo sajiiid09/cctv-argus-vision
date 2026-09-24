@@ -168,6 +168,9 @@ async def measuring(gap: GapKeeper, *, cause: str = "crash") -> AsyncIterator[Ga
     """
     try:
         yield gap
-    except BaseException:
+    except Exception:
+        # asyncio.CancelledError is a BaseException on Python 3.12.  A deliberate
+        # service shutdown is not a measurement failure and must not manufacture
+        # a crash gap that payroll later has to treat as a bad camera window.
         await gap.stopped(cause)
         raise

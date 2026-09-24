@@ -61,9 +61,17 @@ PARITY_ARTEFACT = os.environ.get("ARGUS_PARITY_ARTEFACT", "ssd_mobilenet_v1")
 
 def _detector():
     try:
-        return get_detector(PARITY_BACKEND)
+        detector = get_detector(PARITY_BACKEND)
     except Exception as e:
+        if PARITY_BACKEND.startswith("onnx-cuda"):
+            pytest.fail(f"{PARITY_BACKEND} session could not be constructed: {e}")
         pytest.skip(f"{PARITY_BACKEND} backend unavailable on this box: {e}")
+    if PARITY_BACKEND.startswith("onnx-cuda"):
+        assert "CUDAExecutionProvider" in detector.providers_active, (
+            f"{PARITY_BACKEND} was requested but the session fell back to "
+            f"{detector.providers_active!r}"
+        )
+    return detector
 
 
 def _reference():

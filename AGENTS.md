@@ -6,11 +6,13 @@ Absorbs the former `TESTING.md` and `DEV_SETUP.md`.
 Read `SOUL.md` first. It is short, and it decides most arguments this document
 would otherwise have to have.
 
-**Current state, 2026-09-18.** M0–M2 closed on the CPU leg. M3–M6 are built and
-tested **on rig footage**: the canteen path runs end to end and writes doorway
-events, clips, pairing runs and payroll lines; the gate, occupancy, violence
-trigger, enrolment CLI and operator console all exist. Five services:
-`ingest`, `pairing`, `enrol`, `gate`, `ui`.
+**Current state, 2026-09-24.** M0–M2 are closed on the CPU and NVIDIA staging
+legs. M3–M6 are built and tested **on rig footage**: the canteen path runs end
+to end and writes doorway events, clips, pairing runs and payroll lines; the
+gate, occupancy, violence trigger, enrolment CLI and operator console all
+exist. On the RTX 4070 Ti workstation, the CUDA inference session, NVDEC probe,
+native ingest path and SSD CUDA golden leg have passed. Five services: `ingest`,
+`pairing`, `enrol`, `gate`, `ui`.
 
 Three things that sound like features and are not, so nobody claims them:
 identity is **off** (no face threshold has been measured, so every crossing is
@@ -18,9 +20,9 @@ identity is **off** (no face threshold has been measured, so every crossing is
 and faces are **unresolved** in `models/registry.yaml` and the rig runs on mock
 backends; and the badge reader client has **never been spoken to**.
 
-Outstanding and hardware-blocked: GPU decode, the CUDA parity leg, every sizing
-number, per-camera GOP and the two-concurrent-client check, live ZKT taps, face
-thresholds, demo rehearsal. Update this paragraph when it stops being true.
+Outstanding and hardware-blocked: every sizing number, per-camera GOP and the
+two-concurrent-client check, live ZKT taps, real-camera validation, face
+thresholds, and demo rehearsal. Update this paragraph when it stops being true.
 
 **This deployment is a personal, non-commercial test environment.** ADR-0030
 permits AGPL and research-only model weights on that basis and states the
@@ -185,11 +187,14 @@ refuses a changed one.
 ## 6. Environments
 
 **The platform reality.** macOS dev is arm64 with CoreML and **cannot** reach the
-GPU from Docker; Ubuntu staging is x86_64 with NVIDIA and runs everything in
-containers. So on a Mac you run a permanent hybrid: infrastructure in Docker,
-analysis natively. That is the platform, not a workaround to fix later. There is
-also a GPU-less Linux box that runs the same tree on the CPU reference backend;
-it proves logic, not CoreML and not CUDA.
+GPU from Docker; Ubuntu staging is x86_64 with NVIDIA. The intended production
+layout is containerised, but the verified workstation path is native analysis
+with infrastructure in Docker; the GPU-capable ingest image is also smoke-tested,
+while the remaining service Compose definitions are follow-up work. So on a Mac
+you run a permanent hybrid: infrastructure in Docker, analysis natively. That is
+the platform, not a workaround to fix later. There is also a GPU-less Linux box
+that runs the same tree on the CPU reference backend; it proves logic, not CoreML
+and not CUDA.
 
 **The Linux box is the arbiter.** macOS proves logic; Linux proves the system. A
 change is not done because it works on the Mac.
@@ -199,18 +204,22 @@ container needs a different command to work, the difference is a bug, not a
 platform quirk. Configuration comes from the same file/env mechanism everywhere;
 no ad-hoc command-line arguments that exist only on someone's laptop.
 
-**NVIDIA box bring-up.** `sudo ubuntu-drivers install`, then the NVIDIA Container
-Toolkit, then:
+**NVIDIA box bring-up.** The native path is verified on the RTX workstation:
+CUDA 13 runtime/cuDNN 9, NVIDIA Container Toolkit, hardware NVDEC, and the
+pinned SSD CUDA golden leg all passed. The container check remains:
 
 ```bash
-docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+docker run --rm --gpus all nvidia/cuda:13.0.0-base-ubuntu24.04 nvidia-smi
 ```
 
-That is the real check. If `nvidia-smi` works inside a container the rest is
-ordinary work; if it does not, nothing downstream will. `config/staging.yaml`
-sets `decode: nvidia`, which is **unverified** and is the remaining M1 exit
-criterion. A first TensorRT engine build, if ADR-0021 lands that way, is cached
-and can take minutes — do not read a slow first start as a hang.
+That proves driver visibility, not application CUDA loading; the post-sync ORT
+session is still the real check. `config/staging_canteen.yaml` has been
+observed using `decode: nvidia`; `config/staging.yaml` remains the
+container-oriented path. The ingest image now carries the matching CUDA 13 and
+cuDNN 9 runtime and its four-stream Docker smoke test passed, but the Linux
+Compose file still covers infrastructure plus ingest only, not every service.
+A first TensorRT engine build, if ADR-0021 lands that way, is cached and can
+take minutes — do not read a slow first start as a hang.
 
 **Timezone.** `timedatectl set-timezone Asia/Dhaka` is display only. The
 application stores UTC and reads the policy timezone from config. A server left
