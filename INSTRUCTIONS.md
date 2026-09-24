@@ -17,6 +17,15 @@ Two warnings to carry through the whole file:
   decides more about accuracy than any threshold in this repository
   (`PLAN.md` M8).
 
+**Current workstation status (2026-09-24).** This host is
+`192.168.10.5/24` on the local LAN. Its native rig path is verified: Postgres
+and mediamtx are local-only containers, four synthetic RTSP streams publish,
+CUDA inference and NVDEC have passed, and the simulated gate path writes a
+`not_attempted` result. No real camera or badge reader has been connected to
+this host yet; every hardware checkbox below remains open. The address table
+uses the workstation's actual subnet, but the camera/reader addresses are
+planned placeholders, not discovered devices.
+
 ---
 
 ## 1. Network plan
@@ -28,12 +37,18 @@ Fill this in before touching a cable, and keep it with the machine:
 
 | Device | Model | MAC | IP | Port(s) | Credential lives in |
 |---|---|---|---|---|---|
-| GPU box | | | `192.168.1.10` | 5432, 8554, 8080 (localhost only) | — |
-| Canteen door 1 | | | `192.168.1.21` | 554 | `config/secrets.env` |
-| Canteen door 2 | | | `192.168.1.22` | 554 | `config/secrets.env` |
-| Gate camera | | | `192.168.1.23` | 554 | `config/secrets.env` |
-| Floor camera | | | `192.168.1.24` | 554 | `config/secrets.env` |
-| Badge reader | | | `192.168.1.30` | 4370 | `config/secrets.env` |
+| GPU box | | | `192.168.10.5` (verified) | 5432 native, 5434 project container, 8554 RTSP, 8080 localhost only | — |
+| Canteen door 1 | | | `192.168.10.21` (planned) | 554 | `config/secrets.env` |
+| Canteen door 2 | | | `192.168.10.22` (planned) | 554 | `config/secrets.env` |
+| Gate camera | | | `192.168.10.23` (planned) | 554 | `config/secrets.env` |
+| Floor camera | | | `192.168.10.24` (planned) | 554 | `config/secrets.env` |
+| Badge reader | | | `192.168.10.30` (planned) | 4370 | `config/secrets.env` |
+
+The workstation's native PostgreSQL 16 owns `127.0.0.1:5432`; the project's
+Compose Postgres is deliberately published on `127.0.0.1:5434` instead. The
+camera/reader rows above are a plan for this subnet, not evidence that those
+devices exist. Replace them with DHCP reservations or static addresses after
+the site survey.
 
 Rules:
 
@@ -54,9 +69,18 @@ Rules:
 Verify reachability before anything else:
 
 ```bash
-ping -c3 192.168.1.21
-nc -vz 192.168.1.21 554      # camera RTSP
-nc -vz 192.168.1.30 4370     # reader
+ping -c3 192.168.10.21
+nc -vz 192.168.10.21 554      # camera RTSP
+nc -vz 192.168.10.30 4370     # reader
+```
+
+On this workstation, the equivalent host-only checks before cabling real
+hardware are:
+
+```bash
+nc -vz 127.0.0.1 5434        # project Postgres container
+nc -vz 127.0.0.1 8554        # mediamtx
+curl -fsS http://127.0.0.1:8080/login   # after the UI is running
 ```
 
 ---
@@ -94,7 +118,7 @@ On each camera's own web interface:
 
 | Setting | Value | Why |
 |---|---|---|
-| Codec | **H.264** (not H.265/HEVC) | Clips are remuxed, not re-encoded (ADR-0031); the whole evidence path is built and tested around H.264 packets |
+| Codec | **H.264** (not H.265/HEVC) | The packet/evidence path is built and tested around H.264 packets; remux is preferred, with decode+encode as a visible fallback (ADR-0031) |
 | Main stream | 1080p, 15–25 fps, CBR | This is the evidence and what a clip contains |
 | **I-frame interval (GOP)** | **= the frame rate** (1 second) | Clips are GOP-aligned; a 4-second GOP makes a clip start up to 4 seconds early or fail to extract |
 | Sub stream | 640×360–720p, same codec | This is what inference decodes (`analysis_uri`, ADR-0031) |
@@ -119,7 +143,7 @@ Prove each one with the box's own tools before it goes anywhere near config:
 
 ```bash
 ffprobe -v error -rtsp_transport tcp -show_streams \
-  "rtsp://USER:PASS@192.168.1.21:554/cam/realmonitor?channel=1&subtype=0" \
+  "rtsp://USER:PASS@192.168.10.21:554/cam/realmonitor?channel=1&subtype=0" \
   | grep -E "codec_name|width|height|avg_frame_rate"
 ```
 
@@ -182,8 +206,8 @@ variable from a password. Ingest would fail on `camera_source_uri_has_no_credent
 **So put the whole URI in one variable.** In `config/secrets.env` (mode 600):
 
 ```sh
-CANTEEN_01_URI='rtsp://argus:the-password@192.168.1.21:554/cam/realmonitor?channel=1&subtype=0'
-CANTEEN_01_SUB='rtsp://argus:the-password@192.168.1.21:554/cam/realmonitor?channel=1&subtype=1'
+CANTEEN_01_URI='rtsp://argus:the-password@192.168.10.21:554/cam/realmonitor?channel=1&subtype=0'
+CANTEEN_01_SUB='rtsp://argus:the-password@192.168.10.21:554/cam/realmonitor?channel=1&subtype=1'
 ```
 
 and in the site config only the variable name appears, which is what is stored:
@@ -212,15 +236,37 @@ and not the rig.
 ```bash
 cp config/staging_canteen.yaml config/site.yaml
 # edit the cameras: block
-uv run python -c "from argus.common.config import load_config; load_config('config/site.yaml')"
-uv run python -m argus.ingest --config config/site.yaml
+uv run --no-sync python -c "from argus.common.config import load_config; load_config('config/site.yaml')"
+export ARGUS_DATABASE__DSN='postgresql://argus:argus@localhost:5434/argus'
+uv run --no-sync python -m argus.ingest --config config/site.yaml
 ```
 
-The load check catches a bad `door_line`, a missing `space_id` on a canteen door
-and an unset `${VAR}` before a camera ever gets opened.
+The copied staging file already contains the explicit `ui.role_passphrases`
+mapping, so the four `UI_*_PASSPHRASE` values in the mode-600 secrets file are
+usable. The load check catches a bad `door_line`, a missing `space_id` on a
+canteen door and an unset `${VAR}` before a camera ever gets opened. The
+secrets file is excluded from Docker build contexts; the Linux Compose file
+mounts the config directory at the process-relative path used by the loader at
+runtime rather than baking secrets into an image or exporting every secret as
+an environment variable.
 
 First run, watch for: each camera reaching `state=up`, `frames` climbing,
 `reconnects` staying at 0, and no `stream_gap` rows accumulating.
+
+### 2.7 What is verified on this workstation
+
+The following is **not** a camera installation result; it is the virtual-rig
+baseline that must pass before real hardware is connected:
+
+- four local H.264 RTSP streams publish through mediamtx on `127.0.0.1:8554`;
+- native ingest selected `hardware decode via cuda` for all four streams;
+- the mock canteen detector wrote doorway events and pairing/report/gate rows;
+- the console is running on `127.0.0.1:8080` and is reached through an
+  SSH tunnel.
+
+No camera, door line, two-client result, GOP setting, or badge assignment has
+been verified. Keep those boxes below unchecked until the corresponding device
+is physically present and measured.
 
 ---
 
@@ -258,8 +304,8 @@ On the reader's keypad or its web interface:
 Verify from the box:
 
 ```bash
-ping -c3 192.168.1.30
-nc -vz 192.168.1.30 4370          # must connect
+ping -c3 192.168.10.30
+nc -vz 192.168.10.30 4370          # must connect
 ```
 
 ### 3.3 Map badges to people
@@ -268,10 +314,10 @@ A tap is only attributable if the badge is assigned. Enrolment is the only path,
 `--by` is mandatory and consent is enforced twice:
 
 ```bash
-uv run argus-enrol --config config/site.yaml person add   --person p1 --employee-ref HR-1 --by "your name"
-uv run argus-enrol --config config/site.yaml consent record --person p1 --expires 2026-12-31 --by "your name"
-uv run argus-enrol --config config/site.yaml badge assign --person p1 --badge 0012345 --by "your name"
-uv run argus-enrol --config config/site.yaml list
+uv run --no-sync argus-enrol --config config/site.yaml person add   --person p1 --employee-ref HR-1 --by "your name"
+uv run --no-sync argus-enrol --config config/site.yaml consent record --person p1 --expires 2026-12-31 --by "your name"
+uv run --no-sync argus-enrol --config config/site.yaml badge assign --person p1 --badge 0012345 --by "your name"
+uv run --no-sync argus-enrol --config config/site.yaml list
 ```
 
 Badge assignment is historical: a tap resolves to whoever held that badge **at
@@ -284,7 +330,7 @@ In `config/site.yaml`:
 ```yaml
 gate:
   tap_source: zkt              # was: simulated
-  host: 192.168.1.30
+  host: 192.168.10.30
   port: 4370
   password: ${ZKT_PASSWORD}    # set in config/secrets.env, mode 600
   reader_id: gate_reader_01
@@ -299,13 +345,13 @@ Then, in this order:
 
 ```bash
 # 1. the path itself, with no hardware involved — proves db, camera row, writes
-uv run python -m argus.gate --config config/staging_canteen.yaml --once --badge B-1
+uv run --no-sync python -m argus.gate --config config/staging_canteen.yaml --once --badge B-1
 
 # 2. the reader's own log for the last day: read-only, no live subscription
-uv run python -m argus.gate --config config/site.yaml --replay-since 2026-09-20T00:00:00Z
+uv run --no-sync python -m argus.gate --config config/site.yaml --replay-since 2026-09-20T00:00:00Z
 
 # 3. live
-uv run python -m argus.gate --config config/site.yaml
+uv run --no-sync python -m argus.gate --config config/site.yaml
 ```
 
 Step 2 before step 3 on purpose: reading the log exercises connect, auth,
@@ -346,7 +392,7 @@ Expected, the first time. Work down this list:
 Capture the conversation rather than guessing:
 
 ```bash
-sudo tcpdump -i any -n host 192.168.1.30 and port 4370 -w /tmp/zkt.pcap
+sudo tcpdump -i any -n host 192.168.10.30 and port 4370 -w /tmp/zkt.pcap
 ```
 
 If the dialect does not match, keep `tap_source: simulated` and demo the path.
@@ -357,15 +403,22 @@ attendance is not recoverable.
 
 ## 4. Before you call it installed
 
-- [ ] Every device pings, and `nc` reaches 554 / 4370
+The first group is the **virtual baseline** verified on 2026-09-24; the second
+group is intentionally open until real devices are present:
+
+- [x] Virtual rig: mediamtx local-only, four H.264 streams, mock detector
+- [x] Virtual ingest: all streams `state=up`, CUDA decode, events and clips written
+- [x] UI config loads with all four explicit role passphrases; `secrets.env` is mode 600
+- [x] No project port is published on the LAN; UI is localhost/SSH-tunnel only
+- [ ] Every real device pings, and `nc` reaches 554 / 4370
 - [ ] Every camera is H.264, GOP = fps, sub stream configured
 - [ ] `ffprobe` succeeds on main and sub for every camera
 - [ ] Two-client test recorded per camera (pass, or single-stream fallback)
 - [ ] Door lines measured, and **walked through** to confirm enter/exit direction
 - [ ] All URIs are whole-URI `${VAR}`s; `config/secrets.env` is mode 600
 - [ ] `load_config('config/site.yaml')` passes
-- [ ] Ingest: every camera `state=up`, reconnects 0, no gap rows accumulating
-- [ ] A clip extracts and plays, and starts at a keyframe
+- [ ] Ingest: every real camera `state=up`, reconnects 0, no gap rows accumulating
+- [ ] A real-camera clip extracts and plays, and starts at a keyframe
 - [ ] Badges assigned to people with recorded consent
 - [ ] A live tap produces `gate_tap` + `gate_event`
 - [ ] Clocks: box, cameras and reader all on one NTP source

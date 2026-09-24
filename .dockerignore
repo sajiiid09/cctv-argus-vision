@@ -2,6 +2,7 @@
 var/
 rig/footage/
 models/artifacts/
+config/secrets.env
 .git/
 .github/
 __pycache__/

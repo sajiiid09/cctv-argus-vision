@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: argus
       POSTGRES_DB: argus
     ports:
-      - "${ARGUS_PG_HOST_PORT:-5432}:5432"
+      - "127.0.0.1:${ARGUS_PG_HOST_PORT:-5432}:5432"
     volumes:
       - argus_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -20,9 +20,9 @@ services:
   mediamtx:
     image: bluenviron/mediamtx:latest
     ports:
-      - "8554:8554"
-      - "8888:8888"
-      - "8889:8889"
+      - "127.0.0.1:8554:8554"
+      - "127.0.0.1:8888:8888"
+      - "127.0.0.1:8889:8889"
     volumes:
       - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
     restart: unless-stopped

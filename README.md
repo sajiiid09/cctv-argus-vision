@@ -2,14 +2,16 @@
 
 CCTV workplace analytics for a garments factory in Bangladesh.
 
-**Status 2026-09-18: M0–M2 closed on the CPU leg; M3–M6 built and tested, on rig
-footage only.** The canteen path runs end to end — RTSP, decode, detect, track,
-cross, clip, write, pair, report, review — and the rig replay finds nine of the
-manifest's ten labelled crossings with every direction correct. Identity is off
-(no face threshold has been measured, so every crossing is `unknown`, which
-fails open), the badge reader has never been spoken to, and every accuracy
-number describes the rig. Remaining M1 exit: GPU decode on the RTX box;
-remaining M2 legs: CUDA on staging, CoreML on demand (ADR-0022). See `PLAN.md`.
+**Status 2026-09-24: M0–M2 closed on the CPU and NVIDIA staging legs; M3–M6
+built and tested, on rig footage only.** The canteen path runs end to end —
+RTSP, decode, detect, track, cross, clip, write, pair, report, review — and the
+rig replay finds nine of the manifest's ten labelled crossings with every
+direction correct. On the RTX 4070 Ti workstation, CUDA inference and NVDEC
+were proven and the SSD CUDA golden leg passed. Identity is off (no face
+threshold has been measured, so every crossing is `unknown`, which fails open),
+the badge reader has never been spoken to, and every accuracy number describes
+the rig. Remaining work is real-camera/reader bring-up, model artefacts beyond
+SSD, sizing, and the CoreML leg on demand (ADR-0022). See `PLAN.md`.
 The repository directory is called `argus`, which is also the code namespace;
 the product is **Sparrow Vision** (ADR-0024).
 
@@ -93,9 +95,11 @@ defer to the six above on anything they appear to contradict.
 ## Environment, in one line
 
 Dev is macOS/arm64 where Docker cannot reach the GPU, so inference runs natively.
-Production is Ubuntu/x86_64 with NVIDIA where everything is containerised. The
-same source tree runs on both, via backend abstraction and a golden-frame parity
-suite. `ARCHITECTURE.md` §5 is the substantial part of this.
+The Ubuntu/x86_64 NVIDIA workstation now has a verified native staging path and
+a GPU-capable ingest container image; the full production Compose deployment
+remains follow-up work. The same source tree runs across platforms via backend
+abstraction and a golden-frame parity suite. `ARCHITECTURE.md` §5 is the
+substantial part of this.
 
 ## No cameras exist yet
 

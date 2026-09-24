@@ -30,6 +30,13 @@ clips:
 ui:
   bind_host: 127.0.0.1
   port: 8080
+  # The loader expands these only when they appear in YAML; setting the
+  # UI_* variables in secrets.env alone does not populate the role map.
+  role_passphrases:
+    viewer: ${UI_VIEWER_PASSPHRASE}
+    reviewer: ${UI_REVIEWER_PASSPHRASE}
+    payroll: ${UI_PAYROLL_PASSPHRASE}
+    admin: ${UI_ADMIN_PASSPHRASE}
 
 gate:
   tap_source: simulated

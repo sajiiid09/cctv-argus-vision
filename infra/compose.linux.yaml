@@ -1,6 +1,8 @@
-# Linux staging/production (ADR-0016): everything in containers with the
-# NVIDIA Container Toolkit. Containers invoke the SAME entrypoint a developer
-# runs natively — the container supplies environment, not behaviour (AGENTS.md §5).
+# Linux staging/production (ADR-0016): infrastructure and ingest in containers
+# with the NVIDIA Container Toolkit. The other services remain native until
+# their Compose definitions are added. Containers invoke the SAME entrypoint a
+# developer runs natively — the container supplies environment, not behaviour
+# (AGENTS.md §5).
 services:
   postgres:
     image: postgres:16-alpine
@@ -37,7 +39,10 @@ services:
       # registry.yaml is baked into the image; the binaries are the mount below.
       ARGUS_MODELS_ROOT: /app/models
     volumes:
-      - ../config:/etc/argus/config:ro
+      # Mount at the process-relative path used by config.py. This keeps the
+      # mode-600 secrets file out of the image while making ${VAR} expansion
+      # work without exporting every secret as a container environment variable.
+      - ../config:/app/config:ro
       - ../var/clips:/app/var/clips
       - ../models/artifacts:/app/models/artifacts:ro
     # /dev/shm: the 64 MB default breaks frame passing in confusing ways (§5.8)
@@ -49,7 +54,7 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    command: ["--config", "/etc/argus/config/staging.yaml"]
+    command: ["--config", "/app/config/staging.yaml"]
     restart: unless-stopped
 
 volumes:

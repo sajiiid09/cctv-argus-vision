@@ -132,6 +132,23 @@ async def test_measuring_records_a_gap_when_the_pipeline_raises() -> None:
     assert sink.opened == [("canteen_door_01", "crash")]
 
 
+async def test_cancelled_pipeline_does_not_manufacture_a_crash_gap() -> None:
+    """A planned service shutdown is not a camera measurement failure."""
+    sink = _RecordingSink()
+    gap = GapKeeper(sink, "canteen_door_01", FixedClock(T0))
+
+    async def run() -> None:
+        async with measuring(gap):
+            await asyncio.sleep(60)
+
+    task = asyncio.create_task(run())
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert sink.opened == []
+
+
 def test_frameref_matches_the_ingest_frame_fields() -> None:
     """The pipeline consumes RTSPSource's queue with no adapter, so a rename in
     either package has to fail loudly here rather than at runtime."""

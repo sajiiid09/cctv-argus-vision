@@ -32,12 +32,16 @@ choice. Someone has read `SOUL.md` and disagreed with something in it.
 
 ## M1 — Virtual camera rig + stream ingest (week 1–2)
 
-**Status 2026-09-16: implemented.** Rig (deterministic synthetic footage,
-manifests, fault injection), stream manager (single consumer per source, fan-out,
-ring buffer, reconnect, application-level stall watchdog), clip store, event
-store with append-only enforcement, and the full integration test suite are
-verified on a GPU-less Linux box with containerised Postgres + mediamtx. **Not
-yet done:** GPU decode on the RTX staging box — the last M1 exit criterion.
+**Status 2026-09-24: implemented and NVIDIA bring-up verified.** Rig
+(deterministic synthetic footage, manifests, fault injection), stream manager
+(single consumer per source, fan-out, ring buffer, reconnect, application-level
+stall watchdog), clip store, event store with append-only enforcement, and the
+full integration test suite are verified. On the RTX 4070 Ti workstation,
+`hardware decode via cuda` was observed for all four rig streams, with zero
+reconnects in the validation run. Real-camera GOP and two-client behaviour
+remain open; the native synthetic GPU exit is closed for this box, and the
+ingest container smoke test passed, while full service containerisation remains
+follow-up work.
 
 **Goal.** Frames flowing from RTSP into Python on both platforms, with the rig
 serving recorded/synthetic video indistinguishably from a real camera.
@@ -51,7 +55,8 @@ serving recorded/synthetic video indistinguishably from a real camera.
   a single decode per stream; pre-trigger ring buffer working.
 - Clip extraction by `(camera, time range)` producing a playable file.
 - Fault injection working: stream drop, stall, resolution change, latency.
-- **Runs on the Linux staging box, in containers, with GPU decode.** Not optional.
+- **Runs on the Linux staging box with GPU decode.** The native bring-up path is
+  verified; full service containerisation remains a follow-up deployment task.
 - Timestamp discipline: UTC storage, `Asia/Dhaka` conversion in one place, camera
   clock recorded separately.
 
@@ -65,15 +70,17 @@ box exists and is usable, in week two rather than week eight.
 
 ## M2 — Backend abstraction + golden-frame parity (week 2–3)
 
-**Status 2026-09-16: implemented.** `Detector`/`PoseEstimator`/`FaceEmbedder`/
-`ClipClassifier` interfaces, capability-probed registry, CPU/CUDA/CoreML backend
-modules, sha256-verified ONNX artefact mechanism (ADR-0026), committed golden
-frames + reference outputs, tolerance suite, and the import-graph structural
-check — all in CI (ADR-0025). **Verified legs:** CPU reference (Linux box + CI).
-**Pending:** CUDA leg on staging, CoreML leg on the Mac (ADR-0022: on demand,
-not gating merges). ADR-0011
-closed: permissively licensed models only; bring-up artefact is Apache-2.0
-`ssd_mobilenet_v1`.
+**Status 2026-09-24: implemented; CPU and NVIDIA staging legs verified.**
+`Detector`/`PoseEstimator`/`FaceEmbedder`/`ClipClassifier` interfaces,
+capability-probed registry, CPU/CUDA/CoreML backend modules, sha256-verified
+ONNX artefact mechanism (ADR-0026), committed golden frames + reference
+outputs, tolerance suite, and the import-graph structural check are in place.
+The CPU reference and the pinned SSD CUDA leg both pass (7 golden tests each);
+the CUDA test now requires an active `CUDAExecutionProvider`, so CPU fallback
+cannot masquerade as parity. **Pending:** the CoreML leg on the Mac
+(ADR-0022, on demand) and model-specific legs for unresolved YOLO/face
+artefacts. ADR-0011 closed: permissively licensed models only; bring-up
+artefact is Apache-2.0 `ssd_mobilenet_v1`.
 
 **Goal.** One detector running through `Detector` on CoreML (macOS) and
 CUDA/TensorRT (Linux), with divergence measured rather than assumed.
@@ -314,7 +321,7 @@ after this milestone produces evidence, and it needs the sign-off described in
 |---|---|
 | M0 docs | No |
 | M1 rig + ingest | No |
-| M2 abstraction + parity | No — but needs the Linux staging box |
+| M2 abstraction + parity | No — CPU and NVIDIA staging legs verified; CoreML remains on-demand |
 | M3 canteen pipeline | No (real-accuracy claims are blocked) |
 | M4 gate verify | Partly — badge reader can be simulated |
 | M5 occupancy | No |

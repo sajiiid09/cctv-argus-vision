@@ -53,6 +53,31 @@ REPLAY_S = float(os.environ.get("ARGUS_REPLAY_SECONDS", "66"))
 MIN_MATCHED = 9
 
 
+async def _wait_publisher(stream: str, seconds: float = 30.0) -> bool:
+    """Wait for mediamtx to publish a rig stream again.
+
+    Keep this helper local to the rig tests. Importing ``conftest`` by its
+    bare name is ambiguous when pytest has also loaded ``tests/ui/conftest.py``.
+    """
+    import av
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + seconds
+    while loop.time() < deadline:
+        try:
+            container = await asyncio.to_thread(
+                av.open,
+                f"rtsp://localhost:8554/{stream}",
+                options={"rtsp_transport": "tcp"},
+                timeout=3.0,
+            )
+            container.close()
+            return True
+        except Exception:
+            await asyncio.sleep(0.5)
+    return False
+
+
 def _manifest() -> dict:
     return yaml.safe_load((ROOT / "rig" / "manifests" / f"{STREAM}.yaml").read_text())
 
@@ -142,8 +167,6 @@ async def _replay(
             # would stay dead for everything after it -- and a stream that is
             # merely *starting* fails the next test's first connect. So wait for
             # it to actually publish again, the same way the fixture does.
-            from conftest import _wait_publisher
-
             rigctl.spawn(rigctl.find(STREAM))
             if not await _wait_publisher(STREAM, seconds=30):
                 pytest.fail(f"{STREAM} did not come back after this test killed it")
