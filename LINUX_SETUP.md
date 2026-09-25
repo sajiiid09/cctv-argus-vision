@@ -335,8 +335,9 @@ discover late, because everything still *works*, just ten times slower. The
 CUDA golden test now also fails instead of silently passing when the requested
 provider falls back.
 
-`models/fetch.py` fetches only `ssd_mobilenet_v1`. The other four artefacts
-(`yolo26m`, `yolo26m_pose`, `scrfd_10g_bnkps`, `glintr100`) are declared
+`models/fetch.py` fetches `ssd_mobilenet_v1`, and `yolo26m` from
+`~/models/yolo26m.onnx` on this box (pinned 2026-09-25, §7.1). The other three
+artefacts (`yolo26m_pose`, `scrfd_10g_bnkps`, `glintr100`) are declared
 `status: unresolved` — no pinned url, no sha256 — and fetch refuses them by
 design (ADR-0026, ADR-0030). Any backend that needs one raises at construction
 naming `models/registry.yaml`. That is expected, not a broken install.
@@ -453,10 +454,11 @@ people crossing 1.05 s apart.
 ### 7.1 Resolving the YOLO artefact
 
 The detector the canteen path is meant to use (`yolo26m`, ADR-0030) is
-registered as `onnx-cpu-yolo` / `onnx-cuda-yolo` / `onnx-coreml-yolo` and is
-**unresolved**: `models/registry.yaml` pins no url and no sha256, so
-constructing it raises a `ModelArtefactError` naming that file. Nothing selects
-it by accident — SSD stays the default for every plain backend name.
+registered as `onnx-cpu-yolo` / `onnx-cuda-yolo` / `onnx-coreml-yolo`.
+**Resolved 2026-09-25** on this box: steps 1–6 below were done and are recorded
+in `DECISIONS.md` (verification record); step 7 was not — no pipeline config
+selects it yet. The steps stay here for re-exporting or for another box. Nothing
+selects it by accident — SSD stays the default for every plain backend name.
 
 The model itself is pretrained; there is nothing to train here, ever. What is
 missing is the file and its hash.
