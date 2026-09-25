@@ -904,3 +904,26 @@ the M1 synthetic GPU-decode and M2 SSD CUDA legs for this box only; it does not
 change ADR-0022, prove real-camera compatibility, establish sizing, or measure
 accuracy. The chosen runtime profile and local port arrangement are documented
 in `LINUX_SETUP.md`.
+
+## Verification record — 2026-09-25 (not a new ADR)
+
+`yolo26m` resolved. On the RTX 4070 Ti workstation it was exported with
+ultralytics 8.4.163 in a throwaway virtualenv outside this project (ADR-0030):
+`imgsz=640 opset=17 batch=1`, fp32, raw `(1, 84, 8400)` output, sha256
+`984a899c…33f43`, pinned in `models/registry.yaml` with a box-local `file://`
+url. The CPU reference `tests/golden/reference/yolo26m.json` was produced on the
+Mac. The golden suite passed 7/7 on `onnx-cpu-yolo` (Mac) and on
+`onnx-cuda-yolo` (box), with an active `CUDAExecutionProvider`. Observed
+CUDA-vs-CPU divergence over the two matched reference detections: minimum box
+IoU 0.99981, maximum score drift 0.0008, against tolerances of 0.95 and 0.05.
+The reference contains a class-29 (not person) detection on `doorway_empty`; it
+is recorded as the model's output, not endorsed.
+
+On two minutes of real recorded CCTV (a street-facing shopfront, not a doorway),
+YOLO found a person in 66% of frames against SSD's 34%. That is a recall
+observation on one camera, not an accuracy measurement: no ground truth was
+labelled. It closes the M2 YOLO CUDA parity leg for this box only. No pipeline
+config was switched to `onnx-cuda-yolo`; `ShortTracker` and every
+payroll-affecting path are unchanged. The anonymous live-overlay demo
+(`rig/bin/demo_overlay.py`, `INSTRUCTIONS.md` §6) uses its own display-only
+tracker and writes nothing.

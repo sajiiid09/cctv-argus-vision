@@ -105,9 +105,12 @@ def test_yolo_is_registered_per_runtime_and_never_preferred() -> None:
 def test_an_unresolved_artefact_raises_rather_than_dropping_out() -> None:
     """A probe answers "is this runtime usable", never "is the artefact
     fetched" -- so an unpinned artefact must fail loudly at construction and
-    not let something slower serve the request instead."""
-    from argus.backends.onnx_common import ModelArtefactError
-    from argus.backends.registry import get_detector
+    not let something slower serve the request instead.
 
-    with pytest.raises(ModelArtefactError, match="yolo26m is unresolved"):
-        get_detector("onnx-cpu-yolo")
+    Uses the pose artefact because `yolo26m` itself was pinned on 2026-09-25;
+    whichever artefact is still unpinned is the one that proves the rule."""
+    from argus.backends.onnx_common import ModelArtefactError
+    from argus.backends.registry import get_pose_estimator
+
+    with pytest.raises(ModelArtefactError, match="yolo26m_pose is unresolved"):
+        get_pose_estimator("onnx-cpu")

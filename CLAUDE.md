@@ -25,11 +25,12 @@ What that does **not** mean:
 
 - **Identity is off.** No face threshold has been measured, so `face.enabled` is
   false, every crossing is `unknown`, and unknown fails open to zero (ADR-0010).
-- **The model artefacts are unresolved.** `yolo26m`, `yolo26m_pose`,
-  `scrfd_10g_bnkps` and `glintr100` are declared in `models/registry.yaml` with
-  no pinned url or sha256; the wrappers are written and tested against synthetic
-  session outputs. Only `ssd_mobilenet_v1` is fetchable, and the rig runs on the
-  mock backends.
+- **Most model artefacts are unresolved.** `yolo26m` was pinned on 2026-09-25
+  (box-local `file://` url; golden 7/7 on CPU and CUDA, `DECISIONS.md`
+  verification record), but no pipeline config selects it yet. `yolo26m_pose`,
+  `scrfd_10g_bnkps` and `glintr100` are still declared with no pinned url or
+  sha256; their wrappers are tested against synthetic session outputs only. The
+  rig runs on the mock backends.
 - **The badge reader has never been spoken to.** `ZktTapSource` is written,
   `SimulatedTapSource` is the default.
 - **Every number describes the rig**, which draws people as bright disks
