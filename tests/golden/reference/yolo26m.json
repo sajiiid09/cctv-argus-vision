@@ -1,0 +1,79 @@
+{
+  "backend": "onnx-cpu",
+  "frames": {
+    "doorway_empty": {
+      "detections": [
+        {
+          "box": [
+            529.264404296875,
+            184.3992919921875,
+            561.105224609375,
+            216.2899169921875
+          ],
+          "label": "class_29",
+          "label_id": 29,
+          "score": 0.5892
+        }
+      ],
+      "shape": [
+        360,
+        640,
+        3
+      ]
+    },
+    "doorway_single": {
+      "detections": [],
+      "shape": [
+        360,
+        640,
+        3
+      ]
+    },
+    "doorway_two_overlap": {
+      "detections": [],
+      "shape": [
+        360,
+        640,
+        3
+      ]
+    },
+    "floor_grid": {
+      "detections": [],
+      "shape": [
+        360,
+        640,
+        3
+      ]
+    },
+    "gate_closeup": {
+      "detections": [],
+      "shape": [
+        270,
+        480,
+        3
+      ]
+    },
+    "real_person_01": {
+      "detections": [
+        {
+          "box": [
+            16.686865234375,
+            15.62109375,
+            363.39150390625,
+            508.655859375
+          ],
+          "label": "person",
+          "label_id": 0,
+          "score": 0.9194
+        }
+      ],
+      "shape": [
+        512,
+        512,
+        3
+      ]
+    }
+  },
+  "model_ref": "yolo26m@984a899cba2a",
+  "score_threshold": 0.5
+}

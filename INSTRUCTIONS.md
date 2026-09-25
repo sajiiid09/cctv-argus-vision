@@ -441,3 +441,93 @@ The moment the cameras see workers rather than volunteers, the rules in
   (`AGENTS.md` §2), not a config change.
 - Site footage does not leave the site — not to a cloud GPU, not to an error
   tracker, not to a vendor API (`AGENTS.md` §2.6, `RISKS.md` §2).
+
+---
+
+## 6. Live detection demo
+
+A presentation view: person boxes with a track number, and anonymous per-zone
+headcounts, drawn over a recording or a live camera and served to a browser by
+mediamtx. It is `rig/bin/demo_overlay.py`.
+
+What it is **not**: it writes nothing to the database, identifies nobody, and
+feeds nothing to pairing. Its tracker is display-only (position and motion,
+never appearance, ADR-0002) and is deliberately not the `ShortTracker` the
+canteen pipeline uses. Adding a face or a name to it is the AGENTS.md §2 gate
+(#3 and #7), not a demo tweak.
+
+### 6.1 Once, after pulling
+
+```bash
+cd ~/Documents/cctv-argus-vision
+git pull
+uv sync --frozen --all-packages --group staging      # only if uv.lock changed
+uv run --no-sync python models/fetch.py              # verifies yolo26m from ~/models
+```
+
+`models/fetch.py` expects `~/models/yolo26m.onnx` (the pinned `file://` url,
+sha256 `984a899c…`). If it reports a hash mismatch, the file there is not the
+one the reference was made from — re-copy it; do not edit the hash.
+
+### 6.2 Start it
+
+```bash
+cd ~/Documents/cctv-argus-vision
+sg docker -c 'ARGUS_PG_HOST_PORT=5434 docker compose -f infra/compose.dev.yaml up -d mediamtx'
+
+# a recording, looped in real time (YOLO on the GPU)
+uv run --no-sync python rig/bin/demo_overlay.py \
+  --source "$HOME/Documents/Footage/Camera 12 (BestBuy)/A12_20260925101800.mp4" \
+  --backend onnx-cuda-yolo
+```
+
+It prints `publishing rtsp://localhost:8554/demo` once the first frame is out.
+Leave it running; Ctrl-C stops it (from another terminal:
+`pkill -f "rig/bin/demo_overlay.py"`).
+
+Watch it:
+
+- **On the box:** a browser at <http://localhost:8888/demo/> (use `localhost`,
+  not `127.0.0.1` — mediamtx's cookie check can refuse the latter), or VLC →
+  Open Network Stream → `rtsp://localhost:8554/demo` for lower latency.
+- **From another machine:** `ssh -N -L 8888:localhost:8888 raco-ai@<box>`, then
+  the same URL there. Nothing is published on the LAN.
+
+The HLS page runs a few seconds behind; that is the protocol, not the box.
+
+### 6.3 Options
+
+| Flag | Default | Use |
+|---|---|---|
+| `--source` | — | a video file, or `rtsp://USER:PASS@IP:554/...` for a live camera |
+| `--backend` | `onnx-cuda` (SSD) | `onnx-cuda-yolo` for the demo; SSD misses small and distant people |
+| `--start` | `0` | seconds into a file, to open on a busy moment |
+| `--high` / `--low` | `0.35` / `0.15` | score that starts a track / that keeps one alive |
+| `--zones` | Camera 12 zones | YAML list of `{name, colour, label, polygon}`, fractions of the frame |
+| `--path` | `demo` | mediamtx path, so two cameras can run side by side |
+
+A person is in a zone when the bottom-centre of their box — their feet — is
+inside its polygon; earlier zones win where polygons overlap. The Camera 12
+defaults (`CAMERA_12_ZONES` in the script) are Shop entrance, Shopfront walkway
+and Street / sidewalk. For another camera, grab a frame
+(`ffmpeg -i <source> -frames:v 1 frame.png`), read off the corners as fractions,
+and write a zones file:
+
+```yaml
+- name: Doorway
+  colour: [255, 60, 60]
+  label: [0.60, 0.20]
+  polygon: [[0.55, 0.20], [0.80, 0.20], [0.80, 0.95], [0.55, 0.95]]
+```
+
+### 6.4 What to expect
+
+Measured on this box with YOLO on Camera 12: a steady 15 fps (the camera's own
+rate), 5–6 people tracked at once, about 6% GPU. The detector costs ~36 ms a
+frame, of which ~27 ms is CPU letterboxing that stays pure numpy for parity
+(ARCHITECTURE.md §5.3). A solid box is a detection this frame; a dashed box is a
+track coasting on its prediction through a short miss (dropped after 0.8 s).
+
+The Camera 12 recordings are HEVC. The demo decodes them fine; the ingest
+evidence path still wants H.264 (§2.2), so set a camera to H.264 before it goes
+anywhere near `config/site.yaml`.
