@@ -893,6 +893,81 @@ containers with GPU decode" was intentionally left open by this decision; the
 real-camera or production-container claims. A successful demo must not be
 allowed to quietly close those.
 
+## ADR-0034 — One number along a known camera chain (stairwell handoff)
+Date: 2026-09-27 · Status: **OPEN** — AGENTS.md §2 gate #7, drafted, not signed off
+
+**Context.** Six cameras watch one stairwell as a chain: 12 (street and
+shopfront) → 7 (stairway entrance) → 10 → 5 → 13 → 2, one per storey, each
+overlapping its neighbour. `rig/bin/demo_overlay.py` numbers people per camera,
+so someone walking from the street to the top floor collects six unrelated
+numbers. Carrying one number along the chain is cross-camera identity: ADR-0002
+rules it out and AGENTS.md §2 #7 gates it.
+
+**Options.**
+(a) Leave it — six numbers per person, one per camera.
+(b) **Topological handoff.** An exit region on camera N maps to an entry region
+    on camera N+1. A track leaving N's exit region hands its number to a track
+    appearing in N+1's entry region within a time window, in order. Inputs are
+    geometry, the fixed chain order, and time.
+(c) **Ground-plane homography** across the overlap: the same floor point seen by
+    two cameras is the same person.
+(d) **Appearance embedding re-ID** — a descriptor per person, matched across
+    cameras.
+
+**Decision.** Not decided; this is the gate #7 proposal. **Provisional leaning:
+(b), display-only.** A leaning is not a decision and must not be cited as one.
+
+**Reasoning.** (d) is precisely what ADR-0002 rejected and nothing about a
+stairwell weakens that argument: similar clothing, silent and compounding
+errors, and the descriptor *is* the surveillance capability — once it exists,
+"where was this person all day" becomes answerable.
+
+(c) sounds like the right answer for overlapping cameras and is wrong for this
+geometry. Homography needs a shared plane; consecutive storeys share a flight of
+stairs, which is neither planar nor mostly visible to both cameras. The overlap
+here is a landing, not a floor.
+
+(b) is worth considering only because a stairwell is an unusually constrained
+problem. The topology is known, fixed and linear, and a flight of stairs behaves
+close to a queue. That is far more prior information than general re-ID has, and
+none of it describes the person — what is retained is a number, a region and a
+timestamp. It is also inspectable: a wrong handoff is a wrong arrow between two
+named regions, not a similarity score nobody can argue with.
+
+What (b) gets wrong, which is the part a sign-off is actually approving: two
+people crossing a handoff inside the same window can swap numbers, and a swap
+looks exactly like a success. Someone who turns back mid-flight, loiters past
+the window, or is occluded at the handoff gets a new number or somebody else's.
+At shift change — the stairwell's busiest moment, and the one a demo would show
+— order stops being preserved and the mechanism degrades into confident wrong
+answers. That is the same failure ADR-0002 named, reached by a different route.
+The leaning is that this is acceptable *on a screen nobody is paid from*, and
+only there.
+
+**Guard rails, if accepted.** Display only: writes nothing, persists no chained
+number, feeds nothing to pairing, and stays out of
+`argus.pipelines.tracking.ShortTracker`. A handed-off number must be drawn
+differently from a freshly assigned one, so a viewer can see when the system is
+guessing rather than being told a number and trusting it.
+
+**Scope.** This narrows ADR-0002; it does not supersede it. Doorway identity,
+the canteen path and every payroll-affecting code path are untouched, and
+ADR-0002 continues to govern them.
+
+**Changes it.** Measured handoff accuracy on real stairwell footage at
+shift-change density. None exists today: the only recording on the box is
+camera 12, and there is nothing from 7, 10, 5, 13 or 2. The cameras are also not
+yet on the LAN — a 2026-09-27 sweep of `192.168.10.0/24` (arp-scan, nmap
+554/80/8000, ONVIF WS-Discovery, Hikvision SADP) found seven hosts and no
+camera.
+
+**Consequences.** If accepted: a number that is right most of the time and
+silently wrong some of the time, and a chain topology that must be re-measured
+whenever a camera is nudged — ADR-0029's drift problem, extended from one camera
+to a sequence, where one bad link breaks every number above it. If declined: the
+overlay shows six numbers per person and the journey up the stairwell is
+narrated by whoever is presenting, not by the system.
+
 ## Verification record — 2026-09-24 (not a new ADR)
 
 On the Ubuntu 24.04 RTX 4070 Ti workstation, the locked `onnxruntime-gpu==1.30.0`

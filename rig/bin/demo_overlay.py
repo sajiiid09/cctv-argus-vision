@@ -128,6 +128,78 @@ CAMERA_CONFIGS = [
     },
 ]
 
+# Live NVR camera sequence: A12 -> A7 -> A10 -> A5 -> A13 -> A2
+LIVE_CAMERA_CONFIGS = [
+    {
+        "id": 1,
+        "name": "Cam 1 (A12) - Street Entrance",
+        "title": "CAM 1 (A12): STREET ENTRANCE",
+        "channel": 1201,
+        "path": "cam1",
+    },
+    {
+        "id": 2,
+        "name": "Cam 2 (A7) - Lower Stairs",
+        "title": "CAM 2 (A7): LOWER STAIRS",
+        "channel": 701,
+        "path": "cam2",
+    },
+    {
+        "id": 3,
+        "name": "Cam 3 (A10) - Mid Stairs",
+        "title": "CAM 3 (A10): MID STAIRS",
+        "channel": 1001,
+        "path": "cam3",
+    },
+    {
+        "id": 4,
+        "name": "Cam 4 (A5) - 2nd Fl Landing",
+        "title": "CAM 4 (A5): 2ND FL LANDING",
+        "channel": 501,
+        "path": "cam4",
+    },
+    {
+        "id": 5,
+        "name": "Cam 5 (A13) - Upper Stairs",
+        "title": "CAM 5 (A13): UPPER STAIRS",
+        "channel": 1301,
+        "path": "cam5",
+    },
+    {
+        "id": 6,
+        "name": "Cam 6 (A2) - 3rd Fl Landing",
+        "title": "CAM 6 (A2): 3RD FL LANDING",
+        "channel": 201,
+        "path": "cam6",
+    },
+]
+
+
+def get_nvr_credentials(secrets_path: Path | None = None) -> tuple[str, str, str]:
+    """Get NVR host, user, password from env or config/secrets.env."""
+    user = os.environ.get("CAMERA_USER")
+    password = os.environ.get("CAMERA_PASSWORD")
+    host = os.environ.get("CAMERA_HOST", "192.168.1.78")
+
+    sec = secrets_path or Path("config/secrets.env")
+    if (not user or not password) and sec.exists():
+        for line in sec.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                k, v = line.split("=", 1)
+                k, v = k.strip(), v.strip()
+                if k == "CAMERA_USER" and not user:
+                    user = v
+                elif k == "CAMERA_PASSWORD" and not password:
+                    password = v
+                elif k == "CAMERA_HOST" and host == "192.168.1.78":
+                    host = v
+
+    return host or "192.168.1.78", user or "sparrow", password or "Sparrow123"
+
+
 # --- drawing ------------------------------------------------------------------
 
 _GLYPHS = {
@@ -587,7 +659,7 @@ def parse_time_sec(t_str: str) -> float:
 
 def _camera_worker(
     cfg: dict,
-    video_path: Path,
+    video_source: Path | str,
     start_s: float,
     backend: str,
     high: float,
@@ -599,6 +671,7 @@ def _camera_worker(
     req_q: mp.Queue,
     resp_q: mp.Queue,
     stop_event: Any,
+    is_live: bool = False,
 ) -> None:
     """Dedicated worker process for one camera: decodes, detects, tracks, and streams."""
     av.logging.set_level(av.logging.FATAL)
@@ -608,9 +681,6 @@ def _camera_worker(
     url = f"{rtsp_base.rstrip('/')}/{cfg['path']}"
 
     proc = None
-    if publish_individual:
-        proc = publisher(960, 1088, fps, url)
-
     tracker = DemoTracker(high=high)
 
     def assign_global_id(feat: np.ndarray, now: float) -> int:
@@ -625,67 +695,149 @@ def _camera_worker(
                 continue
         return 1
 
-    container = av.open(str(video_path))
-    stream = container.streams.video[0]
-    assert stream.time_base is not None
-    target_pts = (stream.start_time or 0) + int(start_s / stream.time_base)
-    container.seek(target_pts, stream=stream)
+    if is_live:
+        while not stop_event.is_set():
+            try:
+                container = av.open(
+                    str(video_source), options={"rtsp_transport": "tcp"}, timeout=10.0
+                )
+                stream = container.streams.video[0]
+                for packet in container.demux(stream):
+                    if stop_event.is_set():
+                        break
+                    try:
+                        frames_list = packet.decode()
+                    except (av.InvalidDataError, av.FFmpegError):
+                        continue
+                    for frame in frames_list:
+                        if stop_event.is_set():
+                            break
+                        img = frame.to_ndarray(format="rgb24")
+                        now = time.monotonic()
 
-    for frame in container.decode(stream):
-        if stop_event.is_set():
-            break
-        if frame.pts is None or frame.pts < target_pts:
-            continue
-        img = frame.to_ndarray(format="rgb24")
-        now = time.monotonic()
+                        dets = [
+                            d
+                            for d in detector.detect(img, score_threshold=low)
+                            if d.label == "person"
+                        ]
+                        tracker.update(dets, now, img=img, assign_fn=assign_global_id)
 
-        dets = [d for d in detector.detect(img, score_threshold=low) if d.label == "person"]
-        tracker.update(dets, now, img=img, assign_fn=assign_global_id)
+                        drawn = []
+                        for track, box, coasting in tracker.visible(now):
+                            colour = PALETTE[track.track_id % len(PALETTE)]
+                            draw_box(img, Box(*box), colour, dashed=coasting)
+                            draw_label(
+                                img, int(box[0]), int(box[1]) - 2, str(track.track_id), colour
+                            )
+                            drawn.append((track.track_id, box))
 
-        drawn = []
-        for track, box, coasting in tracker.visible(now):
-            colour = PALETTE[track.track_id % len(PALETTE)]
-            draw_box(img, Box(*box), colour, dashed=coasting)
-            draw_label(img, int(box[0]), int(box[1]) - 2, str(track.track_id), colour)
-            drawn.append((track.track_id, box))
+                        if img.shape[0] != 1088 or img.shape[1] != 960:
+                            y_idx = np.linspace(0, img.shape[0] - 1, 544).astype(int)
+                            x_idx = np.linspace(0, img.shape[1] - 1, 480).astype(int)
+                            thumb = img[y_idx[:, None], x_idx].copy()
+                        else:
+                            thumb = img[::2, ::2].copy()
 
-        # Downsample half-size (480x544) for composite 2x3 grid
-        thumb = img[::2, ::2].copy()
-        frame_q.put((cam_id, thumb, len(drawn), [t[0] for t in drawn]))
+                        with contextlib.suppress(Exception):
+                            frame_q.put_nowait((cam_id, thumb, len(drawn), [t[0] for t in drawn]))
 
-        if proc is not None and proc.stdin is not None:
-            with contextlib.suppress(BrokenPipeError):
-                proc.stdin.write(img.tobytes())
+                        if proc is None and publish_individual:
+                            proc = publisher(img.shape[1], img.shape[0], fps, url)
 
-    container.close()
+                        if proc is not None and proc.stdin is not None:
+                            with contextlib.suppress(BrokenPipeError):
+                                proc.stdin.write(img.tobytes())
+                container.close()
+            except Exception:
+                if stop_event.is_set():
+                    break
+                time.sleep(1.0)
+    else:
+        container = av.open(str(video_source))
+        stream = container.streams.video[0]
+        assert stream.time_base is not None
+        target_pts = (stream.start_time or 0) + int(start_s / stream.time_base)
+        container.seek(target_pts, stream=stream)
+
+        for frame in container.decode(stream):
+            if stop_event.is_set():
+                break
+            if frame.pts is None or frame.pts < target_pts:
+                continue
+            img = frame.to_ndarray(format="rgb24")
+            now = time.monotonic()
+
+            dets = [d for d in detector.detect(img, score_threshold=low) if d.label == "person"]
+            tracker.update(dets, now, img=img, assign_fn=assign_global_id)
+
+            drawn = []
+            for track, box, coasting in tracker.visible(now):
+                colour = PALETTE[track.track_id % len(PALETTE)]
+                draw_box(img, Box(*box), colour, dashed=coasting)
+                draw_label(img, int(box[0]), int(box[1]) - 2, str(track.track_id), colour)
+                drawn.append((track.track_id, box))
+
+            # Downsample half-size (480x544) for composite 2x3 grid
+            thumb = img[::2, ::2].copy()
+            frame_q.put((cam_id, thumb, len(drawn), [t[0] for t in drawn]))
+
+            if proc is None and publish_individual:
+                proc = publisher(img.shape[1], img.shape[0], fps, url)
+
+            if proc is not None and proc.stdin is not None:
+                with contextlib.suppress(BrokenPipeError):
+                    proc.stdin.write(img.tobytes())
+
+        container.close()
+
     if proc is not None:
         if proc.stdin is not None:
-            proc.stdin.close()
-        proc.wait(timeout=3)
+            with contextlib.suppress(Exception):
+                proc.stdin.close()
+        try:
+            proc.wait(timeout=2)
+        except Exception:
+            proc.kill()
 
 
-def run_multi_camera(args: argparse.Namespace) -> None:
-    """Run synchronized multi-camera demo across Cameras 1 to 6."""
-    footage_dir = Path(args.footage_dir).expanduser()
-    if not footage_dir.exists():
-        raise FileNotFoundError(f"Footage directory not found: {footage_dir}")
-
-    # Determine time range (default: 17:36:00 to 17:42:00)
-    time_str = args.time_range or "17:36-17:42"
-    start_t_str, end_t_str = time_str.split("-")
-    start_sec = parse_time_sec(start_t_str)
-    end_sec = parse_time_sec(end_t_str)
-    duration_s = max(10.0, end_sec - start_sec)
-    delta_s = start_sec - (17 * 3600 + 40 * 60)  # relative to 17:40:00
-
-    print(
-        f"=== Starting Argus Vision Multi-Camera Demo ===\n"
-        f"  Timeline: {start_t_str} -> {end_t_str} (duration: {duration_s:.0f}s)\n"
-        f"  Footage:  {footage_dir}\n"
-        f"  Backend:  {args.backend}\n"
-        f"  Grid:     http://localhost:8888/{args.path}/\n"
-        f"  Streams:  http://localhost:8888/cam1/ .. /cam6/\n"
-    )
+def run_multi_camera(args: argparse.Namespace, is_live: bool = False) -> None:
+    """Run synchronized multi-camera demo across Cameras 1 to 6 (file replay or live RTSP)."""
+    footage_dir = Path(args.footage_dir).expanduser() if not is_live else None
+    if not is_live:
+        assert footage_dir is not None
+        if not footage_dir.exists():
+            raise FileNotFoundError(f"Footage directory not found: {footage_dir}")
+        time_str = args.time_range or "17:36-17:42"
+        start_t_str, end_t_str = time_str.split("-")
+        start_sec = parse_time_sec(start_t_str)
+        end_sec = parse_time_sec(end_t_str)
+        duration_s = max(10.0, end_sec - start_sec)
+        delta_s = start_sec - (17 * 3600 + 40 * 60)
+        configs = CAMERA_CONFIGS
+        print(
+            f"=== Starting Argus Vision Multi-Camera Demo ===\n"
+            f"  Timeline: {start_t_str} -> {end_t_str} (duration: {duration_s:.0f}s)\n"
+            f"  Footage:  {footage_dir}\n"
+            f"  Backend:  {args.backend}\n"
+            f"  Grid:     http://localhost:8888/{args.path}/\n"
+            f"  Streams:  http://localhost:8888/cam1/ .. /cam6/\n"
+        )
+    else:
+        host, user, password = get_nvr_credentials()
+        if getattr(args, "nvr_host", None):
+            host = args.nvr_host
+        configs = LIVE_CAMERA_CONFIGS
+        duration_s = float("inf")
+        start_sec = 0.0
+        delta_s = 0.0
+        print(
+            f"=== Starting Argus Vision LIVE Multi-Camera Demo ===\n"
+            f"  NVR Host: {host} (Channels: 1201, 701, 1001, 501, 1301, 201)\n"
+            f"  Sequence: A12 -> A7 -> A10 -> A5 -> A13 -> A2\n"
+            f"  Backend:  {args.backend}\n"
+            f"  Grid:     http://localhost:8888/{args.path}/\n"
+            f"  Streams:  http://localhost:8888/cam1/ .. /cam6/\n"
+        )
 
     global_tracker = MultiCamDemoTracker(sim_threshold=0.65)
     hud = Path(tempfile.gettempdir()) / f"argus_demo_{args.path}.txt"
@@ -701,30 +853,54 @@ def run_multi_camera(args: argparse.Namespace) -> None:
     stop_event = mp.Event()
 
     workers = []
-    for cfg in CAMERA_CONFIGS:
-        vpath = footage_dir / str(cfg["file"])
-        if not vpath.exists():
-            print(f"Warning: {vpath} not found! Skipping {cfg['name']}.")
-            continue
-        start_s = float(str(cfg["offset_1740"])) + delta_s
-        p = mp.Process(
-            target=_camera_worker,
-            args=(
-                cfg,
-                vpath,
-                start_s,
-                args.backend,
-                args.high,
-                args.low,
-                args.fps,
-                args.rtsp,
-                not args.no_individual,
-                frame_q,
-                req_q,
-                resp_q,
-                stop_event,
-            ),
-        )
+    for cfg in configs:
+        if is_live:
+            source_uri = f"rtsp://{user}:{password}@{host}:554/Streaming/Channels/{cfg['channel']}"
+            p = mp.Process(
+                target=_camera_worker,
+                args=(
+                    cfg,
+                    source_uri,
+                    0.0,
+                    args.backend,
+                    args.high,
+                    args.low,
+                    args.fps,
+                    args.rtsp,
+                    not args.no_individual,
+                    frame_q,
+                    req_q,
+                    resp_q,
+                    stop_event,
+                    True,
+                ),
+            )
+        else:
+            assert footage_dir is not None
+            vpath = footage_dir / str(cfg["file"])
+            if not vpath.exists():
+                print(f"Warning: {vpath} not found! Skipping {cfg['name']}.")
+                continue
+            start_s = float(str(cfg["offset_1740"])) + delta_s
+            p = mp.Process(
+                target=_camera_worker,
+                args=(
+                    cfg,
+                    vpath,
+                    start_s,
+                    args.backend,
+                    args.high,
+                    args.low,
+                    args.fps,
+                    args.rtsp,
+                    not args.no_individual,
+                    frame_q,
+                    req_q,
+                    resp_q,
+                    stop_event,
+                    False,
+                ),
+            )
         p.start()
         workers.append(p)
 
@@ -738,7 +914,10 @@ def run_multi_camera(args: argparse.Namespace) -> None:
     start_mono = time.monotonic()
 
     try:
-        while time.monotonic() - start_mono < duration_s:
+        while not stop_event.is_set():
+            if not is_live and (time.monotonic() - start_mono >= duration_s):
+                break
+
             # 1. Handle cross-camera global tracking requests
             while not req_q.empty():
                 try:
@@ -772,22 +951,33 @@ def run_multi_camera(args: argparse.Namespace) -> None:
                     canvas[y1:y2, x1:x2] = latest_tiles[cid]
 
             # 4. Burn in HUD text
-            now_sec = start_sec + (time.monotonic() - start_mono)
-            hh, mm, ss = int(now_sec // 3600), int((now_sec % 3600) // 60), int(now_sec % 60)
             total_active = sum(len(ids) for ids in active_by_cam.values())
             active_info = (
                 ", ".join(f"C{cid}:#{ids[0]}" for cid, ids in active_by_cam.items() if ids)
                 or "none"
             )
 
-            hud_line1 = (
-                f"ARGUS MULTI-CAM  |  HEADCOUNT: {global_tracker.headcount}  |  "
-                f"ACTIVE: {total_active} ({active_info})  |  {rate:.1f} FPS"
-            )
-            hud_line2 = (
-                f"TIMELINE: {hh:02d}:{mm:02d}:{ss:02d}  |  "
-                f"RE-ID: ACTIVE (SAME TRACK & BOX ACROSS ALL CAMERAS)"
-            )
+            if is_live:
+                now_str = time.strftime("%H:%M:%S")
+                hud_line1 = (
+                    f"ARGUS LIVE MULTI-CAM  |  HEADCOUNT: {global_tracker.headcount}  |  "
+                    f"ACTIVE: {total_active} ({active_info})  |  {rate:.1f} FPS"
+                )
+                hud_line2 = (
+                    f"TIME: {now_str}  |  "
+                    f"CHAIN: A12 -> A7 -> A10 -> A5 -> A13 -> A2  |  RE-ID: ACTIVE"
+                )
+            else:
+                now_sec = start_sec + (time.monotonic() - start_mono)
+                hh, mm, ss = int(now_sec // 3600), int((now_sec % 3600) // 60), int(now_sec % 60)
+                hud_line1 = (
+                    f"ARGUS MULTI-CAM  |  HEADCOUNT: {global_tracker.headcount}  |  "
+                    f"ACTIVE: {total_active} ({active_info})  |  {rate:.1f} FPS"
+                )
+                hud_line2 = (
+                    f"TIMELINE: {hh:02d}:{mm:02d}:{ss:02d}  |  "
+                    f"RE-ID: ACTIVE (SAME TRACK & BOX ACROSS ALL CAMERAS)"
+                )
             write_hud(hud, f"{hud_line1}\n{hud_line2}")
 
             # 5. Push to MediaMTX
@@ -805,12 +995,16 @@ def run_multi_camera(args: argparse.Namespace) -> None:
     finally:
         stop_event.set()
         if grid_proc.stdin is not None:
-            grid_proc.stdin.close()
-        grid_proc.wait(timeout=3)
+            with contextlib.suppress(Exception):
+                grid_proc.stdin.close()
+        try:
+            grid_proc.wait(timeout=2)
+        except Exception:
+            grid_proc.kill()
         for p in workers:
-            p.join(timeout=2)
             if p.is_alive():
                 p.terminate()
+            p.join(timeout=1)
         print("Demo stopped cleanly.")
 
 
@@ -820,7 +1014,17 @@ def run_multi_camera(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--source", help="single video file or rtsp:// URL")
-    parser.add_argument("--multi", action="store_true", help="run 6-camera synchronized demo")
+    parser.add_argument(
+        "--multi", action="store_true", help="run 6-camera synchronized demo from footage"
+    )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="run 6-camera live RTSP streams (A12 -> A7 -> A10 -> A5 -> A13 -> A2)",
+    )
+    parser.add_argument(
+        "--nvr-host", default=None, help="NVR host/IP (default: from CAMERA_HOST or 192.168.1.78)"
+    )
     parser.add_argument("--time-range", default="17:36-17:42", help="range (e.g. 17:36-17:42)")
     parser.add_argument(
         "--footage-dir",
@@ -840,9 +1044,14 @@ def main() -> None:
     parser.add_argument("--record", type=Path, help="save output to video file")
     args = parser.parse_args()
 
+    # If --live is requested, run live 6-camera stream
+    if args.live:
+        run_multi_camera(args, is_live=True)
+        return
+
     # If --multi or if --source is not specified, run multi-camera demo
     if args.multi or not args.source:
-        run_multi_camera(args)
+        run_multi_camera(args, is_live=False)
         return
 
     # Single-camera mode (preserved 100% backwards-compatible)
