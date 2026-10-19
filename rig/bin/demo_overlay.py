@@ -654,6 +654,13 @@ def parse_time_sec(t_str: str) -> float:
     return float(parts[0])
 
 
+def is_green_decode_artifact(img: np.ndarray) -> bool:
+    """Reject the near-solid green frames observed from corrupt NVR H.264."""
+    sample = img[::16, ::16]
+    red, green, blue = (sample[:, :, channel] for channel in range(3))
+    return bool(red.max() < 8 and blue.max() < 8 and 50 < green.mean() < 120 and green.std() < 12)
+
+
 # --- multi-camera worker & runner --------------------------------------------
 
 
@@ -712,7 +719,11 @@ def _camera_worker(
                     for frame in frames_list:
                         if stop_event.is_set():
                             break
+                        if frame.is_corrupt:
+                            continue
                         img = frame.to_ndarray(format="rgb24")
+                        if is_green_decode_artifact(img):
+                            continue
                         now = time.monotonic()
 
                         dets = [
@@ -907,6 +918,9 @@ def run_multi_camera(args: argparse.Namespace, is_live: bool = False) -> None:
     canvas = np.zeros((1088, 1440, 3), dtype=np.uint8)
     tile_w, tile_h = 480, 544
     latest_tiles: dict[int, np.ndarray] = {}
+    last_frame_at: dict[int, float] = {}
+    unavailable_tile = np.full((tile_h, tile_w, 3), 32, dtype=np.uint8)
+    unavailable_tile[:, :5] = (255, 180, 0)
     active_by_cam: dict[int, list[int]] = {i: [] for i in range(1, 7)}
 
     t0 = time.monotonic()
@@ -937,6 +951,7 @@ def run_multi_camera(args: argparse.Namespace, is_live: bool = False) -> None:
                 try:
                     cid, thumb, _num_drawn, tids = frame_q.get_nowait()
                     latest_tiles[cid] = thumb
+                    last_frame_at[cid] = time.monotonic()
                     active_by_cam[cid] = tids
                 except Exception:
                     break
@@ -947,8 +962,13 @@ def run_multi_camera(args: argparse.Namespace, is_live: bool = False) -> None:
                 col = (cid - 1) % 3
                 y1, y2 = row * tile_h, (row + 1) * tile_h
                 x1, x2 = col * tile_w, (col + 1) * tile_w
-                if cid in latest_tiles:
+                if cid in latest_tiles and (
+                    not is_live or time.monotonic() - last_frame_at[cid] < 3.0
+                ):
                     canvas[y1:y2, x1:x2] = latest_tiles[cid]
+                else:
+                    canvas[y1:y2, x1:x2] = unavailable_tile
+                    active_by_cam[cid] = []
 
             # 4. Burn in HUD text
             total_active = sum(len(ids) for ids in active_by_cam.values())
@@ -963,9 +983,14 @@ def run_multi_camera(args: argparse.Namespace, is_live: bool = False) -> None:
                     f"ARGUS LIVE MULTI-CAM  |  HEADCOUNT: {global_tracker.headcount}  |  "
                     f"ACTIVE: {total_active} ({active_info})  |  {rate:.1f} FPS"
                 )
+                unavailable = ",".join(
+                    f"C{cid}"
+                    for cid in range(1, 7)
+                    if cid not in last_frame_at or time.monotonic() - last_frame_at[cid] >= 3.0
+                )
                 hud_line2 = (
-                    f"TIME: {now_str}  |  "
-                    f"CHAIN: A12 -> A7 -> A10 -> A5 -> A13 -> A2  |  RE-ID: ACTIVE"
+                    f"TIME: {now_str}  |  CAMERA SIGNAL UNAVAILABLE: {unavailable or 'none'}"
+                    "  |  RE-ID: ACTIVE"
                 )
             else:
                 now_sec = start_sec + (time.monotonic() - start_mono)
