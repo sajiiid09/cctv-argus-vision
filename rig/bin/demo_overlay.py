@@ -1,9 +1,8 @@
 """Demo overlay: tracked person boxes and anonymous zone counts, published to mediamtx.
 
 Presentation only. Nothing is written to the database and nobody is identified.
-Supports both single-camera overlay and multi-camera synchronized tracking across
-Camera 1 through Camera 6 with cross-camera re-identification (same track ID, same
-bounding box, and invariant global headcount as a person traverses between cameras).
+Supports both single-camera overlay and six independent camera views. Track numbers
+are local to each camera and are never matched across cameras.
 
 Single camera:
     python rig/bin/demo_overlay.py --source FILE_OR_RTSP_URL [--path demo]
@@ -134,42 +133,42 @@ LIVE_CAMERA_CONFIGS = [
         "id": 1,
         "name": "Cam 1 (A12) - Street Entrance",
         "title": "CAM 1 (A12): STREET ENTRANCE",
-        "channel": 1201,
+        "channel": 1202,
         "path": "cam1",
     },
     {
         "id": 2,
         "name": "Cam 2 (A7) - Lower Stairs",
         "title": "CAM 2 (A7): LOWER STAIRS",
-        "channel": 701,
+        "channel": 702,
         "path": "cam2",
     },
     {
         "id": 3,
         "name": "Cam 3 (A10) - Mid Stairs",
         "title": "CAM 3 (A10): MID STAIRS",
-        "channel": 1001,
+        "channel": 1002,
         "path": "cam3",
     },
     {
         "id": 4,
         "name": "Cam 4 (A5) - 2nd Fl Landing",
         "title": "CAM 4 (A5): 2ND FL LANDING",
-        "channel": 501,
+        "channel": 502,
         "path": "cam4",
     },
     {
         "id": 5,
         "name": "Cam 5 (A13) - Upper Stairs",
         "title": "CAM 5 (A13): UPPER STAIRS",
-        "channel": 1301,
+        "channel": 1302,
         "path": "cam5",
     },
     {
         "id": 6,
         "name": "Cam 6 (A2) - 3rd Fl Landing",
         "title": "CAM 6 (A2): 3RD FL LANDING",
-        "channel": 201,
+        "channel": 202,
         "path": "cam6",
     },
 ]
@@ -298,65 +297,6 @@ def paint_zones(img: np.ndarray, zones: list[Zone], occupied: set[str]) -> None:
     img[:] = ((img * keep + premul) >> 8).astype(np.uint8)
 
 
-# --- appearance feature extraction (Re-ID) -----------------------------------
-
-
-def extract_appearance(img: np.ndarray, box: Box | np.ndarray) -> np.ndarray:
-    """Compute normalized 3-part spatial HSV histogram."""
-    h, w = img.shape[:2]
-    if isinstance(box, Box):
-        x1, y1, x2, y2 = box.x1, box.y1, box.x2, box.y2
-    else:
-        x1, y1, x2, y2 = box
-    x1, x2 = max(0, int(x1)), min(w, int(x2))
-    y1, y2 = max(0, int(y1)), min(h, int(y2))
-    if x2 <= x1 or y2 <= y1:
-        return np.zeros(48, dtype=np.float32)
-    crop = img[y1:y2, x1:x2].astype(np.float32) / 255.0
-    r, g, b = crop[..., 0], crop[..., 1], crop[..., 2]
-    cmax = np.maximum(np.maximum(r, g), b)
-    cmin = np.minimum(np.minimum(r, g), b)
-    delta = cmax - cmin + 1e-6
-
-    h_chan = np.zeros_like(r)
-    m_r = (cmax == r) & (delta > 1e-4)
-    m_g = (cmax == g) & (delta > 1e-4)
-    m_b = (cmax == b) & (delta > 1e-4)
-    h_chan[m_r] = ((g[m_r] - b[m_r]) / delta[m_r]) % 6
-    h_chan[m_g] = ((b[m_g] - r[m_g]) / delta[m_g]) + 2
-    h_chan[m_b] = ((r[m_b] - g[m_b]) / delta[m_b]) + 4
-    h_chan = h_chan / 6.0
-
-    s_chan = np.zeros_like(r)
-    m_cmax = cmax > 1e-4
-    s_chan[m_cmax] = delta[m_cmax] / cmax[m_cmax]
-    v_chan = cmax
-
-    ch = crop.shape[0]
-    p1 = int(ch * 0.35)
-    p2 = int(ch * 0.70)
-    parts = [
-        (h_chan[:p1], s_chan[:p1], v_chan[:p1]),
-        (h_chan[p1:p2], s_chan[p1:p2], v_chan[p1:p2]),
-        (h_chan[p2:], s_chan[p2:], v_chan[p2:]),
-    ]
-
-    feat = []
-    for hp, sp, vp in parts:
-        if hp.size == 0:
-            feat.extend([0.0] * 16)
-            continue
-        h_hist, _ = np.histogram(hp, bins=8, range=(0, 1))
-        s_hist, _ = np.histogram(sp, bins=4, range=(0, 1))
-        v_hist, _ = np.histogram(vp, bins=4, range=(0, 1))
-        hist = np.concatenate([h_hist, s_hist, v_hist]).astype(np.float32)
-        norm = np.linalg.norm(hist) + 1e-6
-        feat.extend(hist / norm)
-
-    f = np.array(feat, dtype=np.float32)
-    return f / (np.linalg.norm(f) + 1e-6)
-
-
 # --- tracking -----------------------------------------------------------------
 
 
@@ -376,13 +316,12 @@ class DemoTrack:
     hits: int = 1
     last_seen: float = 0.0
     last_update: float = 0.0
-    feature: np.ndarray | None = None
 
     def predicted(self, now: float) -> np.ndarray:
         dt = min(now - self.last_update, 0.5)
         return self.box + self.velocity * dt * (1.0 - dt)
 
-    def correct(self, box: np.ndarray, now: float, feat: np.ndarray | None = None) -> None:
+    def correct(self, box: np.ndarray, now: float) -> None:
         dt = max(now - self.last_update, 1e-3)
         prior = self.predicted(now)
         centre = ((box[:2] + box[2:]) - (self.box[:2] + self.box[2:])) / 2 / dt
@@ -392,12 +331,6 @@ class DemoTrack:
         self.box = 0.75 * box + 0.25 * prior
         self.hits += 1
         self.last_seen = self.last_update = now
-        if feat is not None:
-            if self.feature is None:
-                self.feature = feat
-            else:
-                self.feature = 0.8 * self.feature + 0.2 * feat
-                self.feature /= np.linalg.norm(self.feature) + 1e-6
 
 
 class DemoTracker:
@@ -439,8 +372,6 @@ class DemoTracker:
         self,
         dets: list[Detection],
         now: float,
-        img: np.ndarray | None = None,
-        assign_fn: Any | None = None,
     ) -> None:
         def arr(ds: list[Detection]) -> list[np.ndarray]:
             return [np.array([d.box.x1, d.box.y1, d.box.x2, d.box.y2]) for d in ds]
@@ -451,21 +382,16 @@ class DemoTracker:
         matched2, _, _ = self._match(rest, low, now, gate=0.3)
 
         for t, box in matched + matched2:
-            feat = extract_appearance(img, box) if img is not None else None
-            t.correct(box, now, feat)
+            t.correct(box, now)
 
         for box in new:
-            feat = extract_appearance(img, box) if img is not None else None
-            t = DemoTrack(0, box, last_seen=now, last_update=now, feature=feat)
+            t = DemoTrack(0, box, last_seen=now, last_update=now)
             self.tracks.append(t)
 
         for t in self.tracks:
             if t.track_id == 0 and t.hits >= self.confirm_hits:
-                if assign_fn is not None and t.feature is not None:
-                    t.track_id = assign_fn(t.feature, now)
-                else:
-                    t.track_id = self._next_id
-                    self._next_id += 1
+                t.track_id = self._next_id
+                self._next_id += 1
 
         self.tracks = [
             t
@@ -479,75 +405,6 @@ class DemoTracker:
             for t in self.tracks
             if t.hits >= self.confirm_hits and now - t.last_seen <= 0.8
         ]
-
-
-# --- multi-camera global re-identification -----------------------------------
-
-
-@dataclass
-class GlobalTrack:
-    global_id: int
-    first_seen: float
-    last_seen: float
-    last_camera: str
-    feature: np.ndarray
-    history_cameras: list[str] = field(default_factory=list)
-
-
-class MultiCamDemoTracker:
-    """Coordinates consistent person track IDs across all 6 cameras.
-
-    When a person leaves one camera and appears in another (e.g. Street -> Stairs
-    -> 2nd Fl Landing), appearance matching and spatio-temporal transition checks
-    ensure:
-      1) The person retains the EXACT SAME track number across all cameras.
-      2) The bounding box uses the same color.
-      3) The global headcount does NOT increment.
-    """
-
-    def __init__(self, sim_threshold: float = 0.65, max_gap_s: float = 180.0) -> None:
-        self.sim_threshold = sim_threshold
-        self.max_gap_s = max_gap_s
-        self.tracks: list[GlobalTrack] = []
-        self._next_id = 1
-
-    def match_or_create(self, cam_name: str, feat: np.ndarray, now: float) -> tuple[int, bool]:
-        best_sim = -1.0
-        best_t: GlobalTrack | None = None
-        for t in self.tracks:
-            gap = now - t.last_seen
-            if gap > self.max_gap_s:
-                continue
-            sim = float(np.dot(feat, t.feature))
-            if sim > best_sim:
-                best_sim = sim
-                best_t = t
-
-        if best_t is not None and best_sim >= self.sim_threshold:
-            best_t.last_seen = now
-            best_t.last_camera = cam_name
-            best_t.feature = 0.75 * best_t.feature + 0.25 * feat
-            best_t.feature /= np.linalg.norm(best_t.feature) + 1e-6
-            if cam_name not in best_t.history_cameras:
-                best_t.history_cameras.append(cam_name)
-            return best_t.global_id, False  # Matched existing person!
-
-        gid = self._next_id
-        self._next_id += 1
-        gt = GlobalTrack(
-            global_id=gid,
-            first_seen=now,
-            last_seen=now,
-            last_camera=cam_name,
-            feature=feat,
-            history_cameras=[cam_name],
-        )
-        self.tracks.append(gt)
-        return gid, True  # New person, headcount incremented
-
-    @property
-    def headcount(self) -> int:
-        return len(self.tracks)
 
 
 # --- plumbing -----------------------------------------------------------------
@@ -645,12 +502,12 @@ def frames(source: str, start_s: float, loop: bool) -> Any:
 
 
 def parse_time_sec(t_str: str) -> float:
-    """Parse HH:MM:SS or MM:SS or seconds string into seconds from midnight."""
+    """Parse a timeline clock as HH:MM[:SS] or seconds from midnight."""
     parts = [float(p) for p in t_str.split(":")]
     if len(parts) == 3:
         return parts[0] * 3600 + parts[1] * 60 + parts[2]
     if len(parts) == 2:
-        return parts[0] * 60 + parts[1]
+        return parts[0] * 3600 + parts[1] * 60
     return float(parts[0])
 
 
@@ -659,6 +516,55 @@ def is_green_decode_artifact(img: np.ndarray) -> bool:
     sample = img[::16, ::16]
     red, green, blue = (sample[:, :, channel] for channel in range(3))
     return bool(red.max() < 8 and blue.max() < 8 and 50 < green.mean() < 120 and green.std() < 12)
+
+
+def check_live_streams() -> bool:
+    """Verify all six NVR substreams before reserving the GPU."""
+    av.logging.set_level(av.logging.FATAL)
+    host, user, password = get_nvr_credentials()
+    all_usable = True
+    for cfg in LIVE_CAMERA_CONFIGS:
+        channel = cfg["channel"]
+        source = f"rtsp://{user}:{password}@{host}:554/Streaming/Channels/{channel}"
+        valid, bad = 0, 0
+        codec = "unavailable"
+        try:
+            container = av.open(source, options={"rtsp_transport": "tcp"}, timeout=5.0)
+            try:
+                stream = container.streams.video[0]
+                codec = stream.codec_context.name
+                if codec in {"h264", "hevc"}:
+                    deadline = time.monotonic() + 4.0
+                    for packet in container.demux(stream):
+                        if time.monotonic() >= deadline or valid >= 10:
+                            break
+                        try:
+                            decoded = packet.decode()
+                        except av.FFmpegError:
+                            if valid:
+                                bad += 1
+                            continue
+                        for frame in decoded:
+                            if frame.is_corrupt or is_green_decode_artifact(
+                                frame.to_ndarray(format="rgb24")
+                            ):
+                                if valid:
+                                    bad += 1
+                            else:
+                                valid += 1
+            finally:
+                container.close()
+        except Exception:
+            bad += 1
+        usable = valid >= 10 and bad <= valid
+        all_usable &= usable
+        reason = "" if usable else " (no clean video; try standard H.264 with smart codec off)"
+        print(
+            f"C{cfg['id']} channel {channel}: codec={codec} valid={valid} bad={bad} "
+            f"{'OK' if usable else 'UNUSABLE'}{reason}",
+            flush=True,
+        )
+    return all_usable
 
 
 # --- multi-camera worker & runner --------------------------------------------
@@ -672,35 +578,27 @@ def _camera_worker(
     high: float,
     low: float,
     fps: int,
+    analysis_fps: float,
     rtsp_base: str,
     publish_individual: bool,
     frame_q: mp.Queue,
-    req_q: mp.Queue,
-    resp_q: mp.Queue,
     stop_event: Any,
     is_live: bool = False,
 ) -> None:
     """Dedicated worker process for one camera: decodes, detects, tracks, and streams."""
     av.logging.set_level(av.logging.FATAL)
     detector = get_detector(backend)
-    cam_name = str(cfg["name"])
     cam_id = int(cfg["id"])
     url = f"{rtsp_base.rstrip('/')}/{cfg['path']}"
+    providers = getattr(detector, "providers_active", [])
+    print(f"Camera {cam_id}: detector={backend} providers={providers}", flush=True)
+    if backend == "onnx-cuda-yolo" and "CUDAExecutionProvider" not in providers:
+        raise RuntimeError(f"Camera {cam_id}: CUDA provider is unavailable")
 
     proc = None
     tracker = DemoTracker(high=high)
-
-    def assign_global_id(feat: np.ndarray, now: float) -> int:
-        req_q.put((cam_id, cam_name, feat, now))
-        while not stop_event.is_set():
-            try:
-                assigned_cam_id, gid = resp_q.get(timeout=0.2)
-                if assigned_cam_id == cam_id:
-                    return gid
-                resp_q.put((assigned_cam_id, gid))  # not for us
-            except Exception:
-                continue
-        return 1
+    last_inference_at = float("-inf")
+    inference_count = 0
 
     if is_live:
         while not stop_event.is_set():
@@ -726,12 +624,15 @@ def _camera_worker(
                             continue
                         now = time.monotonic()
 
-                        dets = [
-                            d
-                            for d in detector.detect(img, score_threshold=low)
-                            if d.label == "person"
-                        ]
-                        tracker.update(dets, now, img=img, assign_fn=assign_global_id)
+                        if now - last_inference_at >= 1.0 / analysis_fps:
+                            dets = [
+                                d
+                                for d in detector.detect(img, score_threshold=low)
+                                if d.label == "person"
+                            ]
+                            tracker.update(dets, now)
+                            last_inference_at = now
+                            inference_count += 1
 
                         drawn = []
                         for track, box, coasting in tracker.visible(now):
@@ -750,7 +651,9 @@ def _camera_worker(
                             thumb = img[::2, ::2].copy()
 
                         with contextlib.suppress(Exception):
-                            frame_q.put_nowait((cam_id, thumb, len(drawn), [t[0] for t in drawn]))
+                            frame_q.put_nowait(
+                                (cam_id, thumb, [t[0] for t in drawn], inference_count)
+                            )
 
                         if proc is None and publish_individual:
                             proc = publisher(img.shape[1], img.shape[0], fps, url)
@@ -759,9 +662,10 @@ def _camera_worker(
                             with contextlib.suppress(BrokenPipeError):
                                 proc.stdin.write(img.tobytes())
                 container.close()
-            except Exception:
+            except Exception as exc:
                 if stop_event.is_set():
                     break
+                print(f"Camera {cam_id}: reconnecting after {type(exc).__name__}", flush=True)
                 time.sleep(1.0)
     else:
         container = av.open(str(video_source))
@@ -778,8 +682,11 @@ def _camera_worker(
             img = frame.to_ndarray(format="rgb24")
             now = time.monotonic()
 
-            dets = [d for d in detector.detect(img, score_threshold=low) if d.label == "person"]
-            tracker.update(dets, now, img=img, assign_fn=assign_global_id)
+            if now - last_inference_at >= 1.0 / analysis_fps:
+                dets = [d for d in detector.detect(img, score_threshold=low) if d.label == "person"]
+                tracker.update(dets, now)
+                last_inference_at = now
+                inference_count += 1
 
             drawn = []
             for track, box, coasting in tracker.visible(now):
@@ -790,7 +697,7 @@ def _camera_worker(
 
             # Downsample half-size (480x544) for composite 2x3 grid
             thumb = img[::2, ::2].copy()
-            frame_q.put((cam_id, thumb, len(drawn), [t[0] for t in drawn]))
+            frame_q.put((cam_id, thumb, [t[0] for t in drawn], inference_count))
 
             if proc is None and publish_individual:
                 proc = publisher(img.shape[1], img.shape[0], fps, url)
@@ -843,14 +750,13 @@ def run_multi_camera(args: argparse.Namespace, is_live: bool = False) -> None:
         delta_s = 0.0
         print(
             f"=== Starting Argus Vision LIVE Multi-Camera Demo ===\n"
-            f"  NVR Host: {host} (Channels: 1201, 701, 1001, 501, 1301, 201)\n"
+            f"  NVR Host: {host} (Substreams: 1202, 702, 1002, 502, 1302, 202)\n"
             f"  Sequence: A12 -> A7 -> A10 -> A5 -> A13 -> A2\n"
             f"  Backend:  {args.backend}\n"
             f"  Grid:     http://localhost:8888/{args.path}/\n"
             f"  Streams:  http://localhost:8888/cam1/ .. /cam6/\n"
         )
 
-    global_tracker = MultiCamDemoTracker(sim_threshold=0.65)
     hud = Path(tempfile.gettempdir()) / f"argus_demo_{args.path}.txt"
     write_hud(hud, "ARGUS MULTI-CAMERA  initializing...")
 
@@ -859,8 +765,6 @@ def run_multi_camera(args: argparse.Namespace, is_live: bool = False) -> None:
     grid_proc = publisher(1440, 1088, args.fps, grid_url, hud=hud, record_file=rec_path)
 
     frame_q: mp.Queue = mp.Queue(maxsize=30)
-    req_q: mp.Queue = mp.Queue()
-    resp_q: mp.Queue = mp.Queue()
     stop_event = mp.Event()
 
     workers = []
@@ -877,11 +781,10 @@ def run_multi_camera(args: argparse.Namespace, is_live: bool = False) -> None:
                     args.high,
                     args.low,
                     args.fps,
+                    args.analysis_fps,
                     args.rtsp,
                     not args.no_individual,
                     frame_q,
-                    req_q,
-                    resp_q,
                     stop_event,
                     True,
                 ),
@@ -903,11 +806,10 @@ def run_multi_camera(args: argparse.Namespace, is_live: bool = False) -> None:
                     args.high,
                     args.low,
                     args.fps,
+                    args.analysis_fps,
                     args.rtsp,
                     not args.no_individual,
                     frame_q,
-                    req_q,
-                    resp_q,
                     stop_event,
                     False,
                 ),
@@ -922,6 +824,10 @@ def run_multi_camera(args: argparse.Namespace, is_live: bool = False) -> None:
     unavailable_tile = np.full((tile_h, tile_w, 3), 32, dtype=np.uint8)
     unavailable_tile[:, :5] = (255, 180, 0)
     active_by_cam: dict[int, list[int]] = {i: [] for i in range(1, 7)}
+    inference_counts = {i: 0 for i in range(1, 7)}
+    prior_inference_counts = inference_counts.copy()
+    inference_rates = {i: 0.0 for i in range(1, 7)}
+    rate_window_start = time.monotonic()
 
     t0 = time.monotonic()
     shown, rate = 0, 0.0
@@ -931,32 +837,31 @@ def run_multi_camera(args: argparse.Namespace, is_live: bool = False) -> None:
         while not stop_event.is_set():
             if not is_live and (time.monotonic() - start_mono >= duration_s):
                 break
+            if any(not worker.is_alive() for worker in workers):
+                raise RuntimeError("A camera worker stopped; inspect the demo log")
 
-            # 1. Handle cross-camera global tracking requests
-            while not req_q.empty():
-                try:
-                    cam_id, cam_name, feat, req_time = req_q.get_nowait()
-                    gid, is_new = global_tracker.match_or_create(cam_name, feat, req_time)
-                    resp_q.put((cam_id, gid))
-                    action = "NEW" if is_new else "RE-ID MATCH (unchanged)"
-                    print(
-                        f"  [{cam_name}] Track #{gid} ({action}) | "
-                        f"Headcount: {global_tracker.headcount}"
-                    )
-                except Exception:
-                    break
-
-            # 2. Collect latest frame thumbnails from workers
+            # Collect latest frame thumbnails and inference counts from workers.
             while not frame_q.empty():
                 try:
-                    cid, thumb, _num_drawn, tids = frame_q.get_nowait()
+                    cid, thumb, tids, inference_count = frame_q.get_nowait()
                     latest_tiles[cid] = thumb
                     last_frame_at[cid] = time.monotonic()
                     active_by_cam[cid] = tids
+                    inference_counts[cid] = inference_count
                 except Exception:
                     break
 
-            # 3. Assemble 2x3 grid canvas
+            now = time.monotonic()
+            elapsed = now - rate_window_start
+            if elapsed >= 5.0:
+                inference_rates = {
+                    cid: (inference_counts[cid] - prior_inference_counts[cid]) / elapsed
+                    for cid in range(1, 7)
+                }
+                prior_inference_counts = inference_counts.copy()
+                rate_window_start = now
+
+            # Assemble 2x3 grid canvas.
             for cid in range(1, 7):
                 row = (cid - 1) // 3
                 col = (cid - 1) % 3
@@ -970,7 +875,7 @@ def run_multi_camera(args: argparse.Namespace, is_live: bool = False) -> None:
                     canvas[y1:y2, x1:x2] = unavailable_tile
                     active_by_cam[cid] = []
 
-            # 4. Burn in HUD text
+            # Burn in HUD text.
             total_active = sum(len(ids) for ids in active_by_cam.values())
             active_info = (
                 ", ".join(f"C{cid}:#{ids[0]}" for cid, ids in active_by_cam.items() if ids)
@@ -980,7 +885,7 @@ def run_multi_camera(args: argparse.Namespace, is_live: bool = False) -> None:
             if is_live:
                 now_str = time.strftime("%H:%M:%S")
                 hud_line1 = (
-                    f"ARGUS LIVE MULTI-CAM  |  HEADCOUNT: {global_tracker.headcount}  |  "
+                    f"ARGUS LIVE MULTI-CAM  |  "
                     f"ACTIVE: {total_active} ({active_info})  |  {rate:.1f} FPS"
                 )
                 unavailable = ",".join(
@@ -990,20 +895,21 @@ def run_multi_camera(args: argparse.Namespace, is_live: bool = False) -> None:
                 )
                 hud_line2 = (
                     f"TIME: {now_str}  |  CAMERA SIGNAL UNAVAILABLE: {unavailable or 'none'}"
-                    "  |  RE-ID: ACTIVE"
+                )
+                hud_line3 = "AI FPS: " + " ".join(
+                    f"C{cid}:{inference_rates[cid]:.1f}" for cid in range(1, 7)
                 )
             else:
                 now_sec = start_sec + (time.monotonic() - start_mono)
                 hh, mm, ss = int(now_sec // 3600), int((now_sec % 3600) // 60), int(now_sec % 60)
                 hud_line1 = (
-                    f"ARGUS MULTI-CAM  |  HEADCOUNT: {global_tracker.headcount}  |  "
-                    f"ACTIVE: {total_active} ({active_info})  |  {rate:.1f} FPS"
+                    f"ARGUS MULTI-CAM  |  ACTIVE: {total_active} ({active_info})  |  {rate:.1f} FPS"
                 )
-                hud_line2 = (
-                    f"TIMELINE: {hh:02d}:{mm:02d}:{ss:02d}  |  "
-                    f"RE-ID: ACTIVE (SAME TRACK & BOX ACROSS ALL CAMERAS)"
+                hud_line2 = f"TIMELINE: {hh:02d}:{mm:02d}:{ss:02d}  |  PER-CAMERA TRACKS"
+                hud_line3 = "AI FPS: " + " ".join(
+                    f"C{cid}:{inference_rates[cid]:.1f}" for cid in range(1, 7)
                 )
-            write_hud(hud, f"{hud_line1}\n{hud_line2}")
+            write_hud(hud, f"{hud_line1}\n{hud_line2}\n{hud_line3}")
 
             # 5. Push to MediaMTX
             if grid_proc.stdin is not None:
@@ -1064,10 +970,20 @@ def main() -> None:
     parser.add_argument("--zones", type=Path, help="YAML list of {name, colour, polygon}")
     parser.add_argument("--start", type=float, default=0.0, help="seconds into a single-cam file")
     parser.add_argument("--fps", type=int, default=15, help="output frame rate")
+    parser.add_argument(
+        "--analysis-fps", type=float, default=3.0, help="per-camera inference rate in live mode"
+    )
     parser.add_argument("--no-loop", action="store_true")
     parser.add_argument("--no-individual", action="store_true", help="skip individual streams")
     parser.add_argument("--record", type=Path, help="save output to video file")
+    parser.add_argument(
+        "--check-streams", action="store_true", help="validate all live NVR substreams and exit"
+    )
     args = parser.parse_args()
+    if args.analysis_fps <= 0:
+        parser.error("--analysis-fps must be positive")
+    if args.check_streams:
+        raise SystemExit(0 if check_live_streams() else 1)
 
     # If --live is requested, run live 6-camera stream
     if args.live:
@@ -1106,7 +1022,7 @@ def main() -> None:
             people = [
                 d for d in detector.detect(img, score_threshold=args.low) if d.label == "person"
             ]
-            tracker.update(people, now, img=img)
+            tracker.update(people, now)
 
             counts = {z.name: 0 for z in zones}
             drawn = []

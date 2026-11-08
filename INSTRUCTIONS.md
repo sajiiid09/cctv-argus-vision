@@ -531,3 +531,31 @@ track coasting on its prediction through a short miss (dropped after 0.8 s).
 The Camera 12 recordings are HEVC. The demo decodes them fine; the ingest
 evidence path still wants H.264 (§2.2), so set a camera to H.264 before it goes
 anywhere near `config/site.yaml`.
+
+### 6.5 Six-camera live view
+
+The live demo reads the NVR substreams for A12, A7, A10, A5, A13 and A2
+(`1202`, `702`, `1002`, `502`, `1302`, `202`). Configure each substream as
+standard H.264, with smart codec disabled, 10 fps, about a one-second keyframe
+interval and the highest available resolution up to 960×540. Keep the main
+recording streams unchanged. Lower resolution may miss small or distant people;
+this display is not an accuracy validation.
+
+```bash
+uv run --no-sync python rig/bin/demo_overlay.py --check-streams
+./start_vision.sh
+./stop_vision.sh
+```
+
+The start script checks all six streams first. It refuses to start if any
+stream has no clean decodable frames, then stops FaceFusion before reserving the GPU
+(an interactive sudo prompt may be required). The live view runs at 10 output
+fps and caps detection at 3 inferences per second per camera. The overlay
+reports the measured inference rate for each camera. Track numbers are local
+to each camera; there is no cross-camera identity or global headcount.
+
+The service publishes at <http://localhost:8888/demo/> on the workstation.
+From another machine, forward port 8888 with SSH as described in §6.2. The
+stop script shuts down the demo and mediamtx; it does not restart FaceFusion.
+If preflight fails, inspect the NVR substreams directly. A browser cannot
+repair corrupt frames that the NVR emits over RTSP.

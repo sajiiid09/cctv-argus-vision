@@ -29,10 +29,24 @@ else
     exit 1
 fi
 
+echo "Checking all six NVR substreams before starting the demo..."
+if ! "$uv_cmd" run --no-sync python rig/bin/demo_overlay.py --check-streams; then
+    echo "Vision demo not started: one or more NVR substreams are unusable." >&2
+    exit 1
+fi
+
+if systemctl is-active --quiet facefusion.service; then
+    if [[ ! -t 0 ]]; then
+        echo "FaceFusion is active. Stop it interactively before starting the vision demo." >&2
+        exit 1
+    fi
+    sudo systemctl stop facefusion.service
+fi
+
 ARGUS_PG_HOST_PORT=5434 docker compose -f infra/compose.dev.yaml up -d mediamtx
 
 setsid "$uv_cmd" run --no-sync python rig/bin/demo_overlay.py \
-    --live --no-individual --backend onnx-cuda-yolo "$@" \
+    --live --no-individual --backend onnx-cuda-yolo --fps 10 --analysis-fps 3 "$@" \
     > "$LOG_FILE" 2>&1 < /dev/null &
 pid=$!
 echo "$pid" > "$PID_FILE"
