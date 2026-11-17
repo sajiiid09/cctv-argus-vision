@@ -534,8 +534,8 @@ anywhere near `config/site.yaml`.
 
 ### 6.5 Six-camera live view
 
-The live demo reads the NVR substreams for A12, A7, A10, A5, A13 and A2
-(`1202`, `702`, `1002`, `502`, `1302`, `202`). Configure each substream as
+The live demo reads the NVR 960x1088 mainstreams for A12, A7, A10, A5, A13 and A2
+(`1201`, `701`, `1001`, `501`, `1301`, `201`). Configure each substream as
 standard H.264, with smart codec disabled, 10 fps, about a one-second keyframe
 interval and the highest available resolution up to 960×540. Keep the main
 recording streams unchanged. Lower resolution may miss small or distant people;

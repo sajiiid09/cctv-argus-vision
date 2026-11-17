@@ -29,9 +29,9 @@ else
     exit 1
 fi
 
-echo "Checking all six NVR substreams before starting the demo..."
+echo "Checking all six NVR 960x1088 mainstreams before starting the demo..."
 if ! "$uv_cmd" run --no-sync python rig/bin/demo_overlay.py --check-streams; then
-    echo "Vision demo not started: one or more NVR substreams are unusable." >&2
+    echo "Vision demo not started: one or more NVR streams are unusable." >&2
     exit 1
 fi
 

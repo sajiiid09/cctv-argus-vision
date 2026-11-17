@@ -47,6 +47,7 @@ class ScrfdFaceDetector(OnnxModel):
         if frame.ndim != 3 or frame.shape[2] != 3 or frame.dtype != np.uint8:
             raise ValueError(f"face detector expects HxWx3 uint8, got {frame.shape} {frame.dtype}")
         tensor, scale, pad_x, pad_y = letterbox(frame, self._width, self._height)
+        tensor = np.ascontiguousarray((tensor * 255.0 - 127.5) / 128.0, dtype=np.float32)
         outs = [np.asarray(o) for o in self._run(tensor)]
         boxes: list[np.ndarray] = []
         scores: list[float] = []

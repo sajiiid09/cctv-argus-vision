@@ -63,9 +63,8 @@ artifacts:
 
   scrfd_10g_bnkps:
     file: artifacts/scrfd_10g_bnkps.onnx
-    sha256: null
-    url: null
-    status: unresolved
+    sha256: 808399c3d0b40ed340634ed590ae564a7caa09e5659916923a95d4470b54ff5a
+    url: file:///home/raco-ai/models/scrfd_10g_bnkps.onnx
     licence: research-only
     commercial_use: false
     source: InsightFace antelopev2 (detection half)
@@ -76,9 +75,8 @@ artifacts:
 
   glintr100:
     file: artifacts/glintr100.onnx
-    sha256: null
-    url: null
-    status: unresolved
+    sha256: f1f79dc3b0b79a69f94799af1fffebff09fbd78fd96a275fd8f0cbbea23270d1
+    url: file:///home/raco-ai/models/glintr100.onnx
     licence: research-only
     commercial_use: false
     source: InsightFace antelopev2 (recognition half)
